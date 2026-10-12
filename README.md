@@ -244,12 +244,12 @@ carries `status`, `assigneeUserId` (null to unassign), `priority` or `queueId`
 
 ### `macros`
 
-| Ruby                           | HTTP                     |
-| ------------------------------ | ------------------------ |
-| `macros.list(query = {})`      | `GET /v1/macros`         |
-| `macros.create(attrs)`         | `POST /v1/macros`        |
-| `macros.update(id, attrs)`     | `PATCH /v1/macros/{id}`  |
-| `macros.delete(id)`            | `DELETE /v1/macros/{id}` |
+| Ruby                       | HTTP                     |
+| -------------------------- | ------------------------ |
+| `macros.list(query = {})`  | `GET /v1/macros`         |
+| `macros.create(attrs)`     | `POST /v1/macros`        |
+| `macros.update(id, attrs)` | `PATCH /v1/macros/{id}`  |
+| `macros.delete(id)`        | `DELETE /v1/macros/{id}` |
 
 A macro is a canned reply plus optional conversation actions. `create`
 requires `name:` and `scope:` (`"workspace"`, `"team"` or `"personal"`), plus
@@ -386,15 +386,15 @@ Seven endpoints are cursor-paginated, and each returns
 `{ "items": [...], "nextCursor": "…" | null }`. For each you get both the
 single page and an auto-paginating `Enumerator`:
 
-| Page | Enumerator |
-| --- | --- |
-| `contacts.list` | `contacts.auto_list` |
-| `conversations.list` | `conversations.auto_list` |
+| Page                         | Enumerator                        |
+| ---------------------------- | --------------------------------- |
+| `contacts.list`              | `contacts.auto_list`              |
+| `conversations.list`         | `conversations.auto_list`         |
 | `conversations.messages(id)` | `conversations.auto_messages(id)` |
-| `tickets.list` | `tickets.auto_list` |
-| `kb.articles` | `kb.auto_articles` |
-| `events.list` | `events.auto_list` |
-| `webhooks.deliveries` | `webhooks.auto_deliveries` |
+| `tickets.list`               | `tickets.auto_list`               |
+| `kb.articles`                | `kb.auto_articles`                |
+| `events.list`                | `events.auto_list`                |
+| `webhooks.deliveries`        | `webhooks.auto_deliveries`        |
 
 Every other list-shaped method returns what the API returns — an `Array` or an
 object — with no `Chatly::Page` wrapper and no `auto_*` twin, because a page

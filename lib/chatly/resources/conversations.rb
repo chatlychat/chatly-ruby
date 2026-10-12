@@ -63,11 +63,30 @@ module Chatly
         )
       end
 
-      # Threads waiting on a human: the queue an autonomous agent polls.
+      # Open threads no human agent has replied to yet -- the queue an
+      # autonomous agent polls.
       #
-      # Not cursor-paginated; it answers with a bounded, server-ordered list.
+      # Cursor-paginated. Narrowing parameters: `assignee:`, `team:`,
+      # `channel:`, `olderThanMinutes:`, plus `cursor:` and `limit:`.
+      #
+      # The envelope carries a `total` beside the page, which is the number
+      # waiting rather than the number on this page -- read it off the Page
+      # so a backlog of 900 does not read as 25:
+      #
+      #   queue = client.conversations.unattended(olderThanMinutes: 15)
+      #   queue["total"]  # => 912
+      #   queue.size      # => 25
+      #
+      # @return [Chatly::Page]
       def unattended(query = {})
-        http_get("#{PATH}/unattended", query)
+        page("#{PATH}/unattended", query)
+      end
+
+      # The whole unattended queue, across pages, as a lazy Enumerator.
+      #
+      # @return [Enumerator]
+      def auto_unattended(query = {})
+        auto("#{PATH}/unattended", query)
       end
 
       # "Do I still own this thread?" -- the handling state and who holds it.

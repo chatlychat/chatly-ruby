@@ -40,6 +40,33 @@ module Chatly
       !@next_cursor.nil?
     end
 
+    # Read a field from the ENVELOPE beside the items.
+    #
+    # Three paginated routes carry more than a page: `search.query` answers
+    # with `facets` (per-entity totals ignoring the `kinds` filter) and a
+    # `tier` (which backend produced the page), and
+    # `conversations.unattended` carries a `total`. A paginator that exposed
+    # only `items` would throw those away, so they are here rather than
+    # buried:
+    #
+    #   results = client.search.query("refund")
+    #   results.items        # => the hits
+    #   results["facets"]    # => {"conversation" => 12, "ticket" => 3, ...}
+    #   results["tier"]      # => "postgres"
+    #
+    # An Integer key raises rather than returning nil. `page[0]` looks like
+    # "the first item" and would never be one -- items come off `items`,
+    # `first` or any Enumerable method.
+    def [](key)
+      if key.is_a?(Integer)
+        raise TypeError,
+              "Chatly::Page#[] reads the response envelope by name (e.g. page[\"facets\"]). " \
+              "For the items use page.items, page.first, or any Enumerable method."
+      end
+
+      @raw.is_a?(Hash) ? @raw[key.to_s] : nil
+    end
+
     def empty?
       @items.empty?
     end

@@ -127,13 +127,33 @@ module Chatly
         http_post(expand("#{PATH}/{id}/unsubscribe", id), body)
       end
 
-      # The contact's timeline: conversations, events, tickets, campaigns.
+      # The contact's timeline -- events, conversations, authored messages and
+      # survey responses merged into one stream, newest first.
       #
-      # Not cursor-paginated -- it answers with a bounded window. To walk the
-      # raw event stream for one person without a ceiling, use
-      # `client.events.auto_list(contactId: id)`.
+      # Cursor-paginated. `days:` sets the window (1-365, default 90) and
+      # `limit:` the page size (1-100, default 25).
+      #
+      # **The cursor is an ISO-8601 instant, not an opaque token** --
+      # `journeyQuerySchema` declares it as
+      # `z.string().datetime({ offset: true })`, so the API rejects anything
+      # that is not one with a 422. It is still a cursor: pass back the
+      # `nextCursor` you were given and never construct one. A hand-built
+      # timestamp looks valid, is accepted, and silently slices the timeline
+      # at a boundary that does not line up with any page -- which loses or
+      # repeats rows rather than failing.
+      #
+      # @return [Chatly::Page]
       def journey(id, query = {})
-        http_get(expand("#{PATH}/{id}/journey", id), query)
+        page(expand("#{PATH}/{id}/journey", id), query)
+      end
+
+      # The whole timeline, across pages, as a lazy Enumerator.
+      #
+      #   client.contacts.auto_journey(id, days: 365).each { |row| puts row["kind"] }
+      #
+      # @return [Enumerator]
+      def auto_journey(id, query = {})
+        auto(expand("#{PATH}/{id}/journey", id), query)
       end
     end
   end

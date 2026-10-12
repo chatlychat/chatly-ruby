@@ -108,10 +108,13 @@ class SurfaceTest < ChatlyTest
   # the route does. `nil` means "not paged": a plain object.
   SHAPES = {
     [:contacts, :list] => :paged,
+    [:contacts, :journey] => :paged,
     [:conversations, :list] => :paged,
     [:conversations, :messages] => :paged,
+    [:conversations, :unattended] => :paged,
     [:tickets, :list] => :paged,
     [:kb, :articles] => :paged,
+    [:search, :query] => :paged,
     [:events, :list] => :paged,
     [:webhooks, :deliveries] => :paged,
     [:macros, :list] => :array

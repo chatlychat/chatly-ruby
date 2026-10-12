@@ -151,10 +151,13 @@ class PaginationTest < ChatlyTest
   # The manifest's `paged` entry => the `auto_*` method that walks it.
   AUTO_FOR = {
     %w[contacts list] => :auto_list,
+    %w[contacts journey] => :auto_journey,
     %w[conversations list] => :auto_list,
     %w[conversations messages] => :auto_messages,
+    %w[conversations unattended] => :auto_unattended,
     %w[tickets list] => :auto_list,
     %w[kb articles] => :auto_articles,
+    %w[search query] => :auto_query,
     %w[events list] => :auto_list,
     %w[webhooks deliveries] => :auto_deliveries
   }.freeze
@@ -162,11 +165,22 @@ class PaginationTest < ChatlyTest
   # Floor, not a discovery: if the manifest's `paged` set shrinks because
   # rows stopped parsing, this fails instead of quietly auditing less.
   #
-  # It moved from 8 to 7 on 2026-10-12, and the reason matters: `macros.list`
-  # was removed from the paged set because its route is `@PaginationExempt`
-  # and returns a bare array -- not because the spec stopped parsing. Lower
-  # it again only with the same kind of reason written down.
-  PAGED_FLOOR = 7
+  # It has moved twice, both times on HANDLER evidence rather than on the
+  # manifest's word, and the manifest was wrong in both directions:
+  #
+  #   8 -> 7   `macros.list` came out. Its route carries `@PaginationExempt`
+  #            and answers with a bare array capped at 200 rows, so there is
+  #            no cursor to walk.
+  #   7 -> 10  `contacts.journey`, `conversations.unattended` and
+  #            `search.query` went in. All three answer
+  #            `{ items, nextCursor }` -- `JourneyResponse`,
+  #            `unattendedPageSchema` and `SearchResponse` respectively --
+  #            and none was flagged.
+  #
+  # Move it again only with that kind of reason written down. A floor lowered
+  # because "the spec says fewer now" is a floor that cannot catch a row
+  # falling out of the parse, which is the only thing it is for.
+  PAGED_FLOOR = 10
 
   # Every paged endpoint offers the pair, and nothing else offers an `auto_*`.
   # A missing `auto_*` is the kind of omission only the person who needed it
@@ -215,6 +229,117 @@ class PaginationTest < ChatlyTest
 
     assert_equal "cursor=first", query_of(transport.requests[0])
     assert_equal "cursor=next", query_of(transport.requests[1])
+  end
+
+  # The three endpoints the manifest did not flag as paged until 2026-10-12.
+  # Each is cursor-paginated on handler evidence, and each carries something
+  # beside the page that a hits-only paginator would have thrown away.
+
+  def test_search_query_returns_the_whole_envelope_not_just_the_hits
+    transport = FakeTransport.new(
+      FakeTransport.json(200, {
+                           "items" => [{ "kind" => "ticket", "id" => "t_1" }],
+                           "nextCursor" => "cur_2",
+                           "tier" => "postgres",
+                           "facets" => { "conversation" => 12, "ticket" => 3 }
+                         })
+    )
+    results = build_client(transport: transport).search.query("refund")
+
+    assert_kind_of Chatly::Page, results
+    assert_equal ["t_1"], results.items.map { |h| h["id"] }
+    assert_equal "cur_2", results.next_cursor
+    assert_equal "postgres", results["tier"]
+    assert_equal({ "conversation" => 12, "ticket" => 3 }, results["facets"])
+    # And nothing is lost even for a field this SDK has never heard of.
+    assert_equal "postgres", results.raw["tier"]
+  end
+
+  def test_unattended_exposes_the_total_beside_the_page
+    transport = FakeTransport.new(
+      FakeTransport.json(200, { "items" => [{ "id" => "v_1" }], "nextCursor" => nil,
+                                "total" => 912 })
+    )
+    queue = build_client(transport: transport).conversations.unattended(olderThanMinutes: 15)
+
+    assert_equal 912, queue["total"], "the backlog is 912, not the 1 row on this page"
+    assert_equal 1, queue.size
+  end
+
+  def test_page_index_lookup_refuses_an_integer_key
+    transport = FakeTransport.new(FakeTransport.page([{ "id" => "c_1" }], nil))
+    page = build_client(transport: transport).contacts.list
+
+    error = assert_raises(TypeError) { page[0] }
+    assert_match(/page\.items/, error.message)
+    # ...and the items are reachable the ways that read as items.
+    assert_equal "c_1", page.first["id"]
+    assert_equal "c_1", page.items.first["id"]
+  end
+
+  def test_page_envelope_lookup_accepts_a_symbol_and_is_nil_for_a_missing_field
+    transport = FakeTransport.new(FakeTransport.json(200, { "items" => [], "total" => 7 }))
+    page = build_client(transport: transport).conversations.unattended
+
+    assert_equal 7, page[:total]
+    assert_nil page["noSuchField"]
+  end
+
+  # The journey cursor is an ISO-8601 instant rather than an opaque token,
+  # which is a reason to be MORE careful about walking it: a hand-built
+  # timestamp is accepted by the validator and slices the timeline somewhere
+  # no page boundary sits. The enumerator echoes what the server gave, byte
+  # for byte.
+  def test_auto_journey_walks_the_iso_cursor_it_was_given
+    transport = FakeTransport.new(
+      FakeTransport.page([{ "kind" => "event" }], "2026-10-01T12:34:56.789Z"),
+      FakeTransport.page([{ "kind" => "message" }], nil)
+    )
+    kinds = build_client(transport: transport).contacts.auto_journey("c_1", days: 365)
+                                             .map { |row| row["kind"] }
+
+    assert_equal %w[event message], kinds
+    assert_equal "/v1/contacts/c_1/journey", path_of(transport.requests[0])
+    assert_equal "days=365", query_of(transport.requests[0])
+    # Echoed verbatim and percent-encoded, not reformatted into another
+    # instant that means the same moment.
+    assert_equal "days=365&cursor=2026-10-01T12%3A34%3A56.789Z", query_of(transport.requests[1])
+  end
+
+  def test_auto_unattended_walks_pages
+    transport = FakeTransport.new(
+      FakeTransport.page([{ "id" => "v_1" }], "cur_2"),
+      FakeTransport.page([{ "id" => "v_2" }], nil)
+    )
+    ids = build_client(transport: transport).conversations.auto_unattended(team: "t_1")
+                                           .map { |c| c["id"] }
+
+    assert_equal %w[v_1 v_2], ids
+    assert_equal "/v1/conversations/unattended", path_of(transport.requests[0])
+    assert_equal "team=t_1&cursor=cur_2", query_of(transport.requests[1])
+  end
+
+  # The search term has to ride every page, not just the first -- otherwise
+  # page two is an unfiltered search and the enumerator quietly returns the
+  # wrong rows.
+  def test_auto_query_carries_q_onto_every_page
+    transport = FakeTransport.new(
+      FakeTransport.page([{ "id" => "h_1" }], "cur_2"),
+      FakeTransport.page([{ "id" => "h_2" }], nil)
+    )
+    ids = build_client(transport: transport).search.auto_query("refund", kinds: %w[kb article])
+                                            .map { |h| h["id"] }
+
+    assert_equal %w[h_1 h_2], ids
+    assert_equal "q=refund&kinds=kb&kinds=article", query_of(transport.requests[0])
+    assert_equal "q=refund&kinds=kb&kinds=article&cursor=cur_2", query_of(transport.requests[1])
+  end
+
+  def test_auto_query_requires_a_search_term
+    client = build_client(transport: FakeTransport.new)
+
+    assert_raises(ArgumentError) { client.search.auto_query("").to_a }
+    assert_raises(ArgumentError) { client.search.auto_query(nil).to_a }
   end
 
   def test_each_page_walks_page_boundaries
