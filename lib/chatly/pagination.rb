@@ -1,13 +1,19 @@
 # frozen_string_literal: true
 
 module Chatly
-  # One page of a list endpoint, exactly as the API returned it.
+  # One page of a cursor-paginated list endpoint, exactly as the API returned
+  # it.
   #
   # The wire shape is `{"items":[...],"nextCursor":"..."|null}`. This wraps it
   # without rewriting it: `raw` is the decoded response, and `items` /
   # `next_cursor` are snake_case readers over the camelCase keys so Ruby code
   # reads like Ruby. The hashes inside `items` keep their camelCase keys --
   # see the README's "Shapes" note for why they are not converted.
+  #
+  # Only the seven genuinely paginated endpoints return one of these. A route
+  # that answers with a bare array -- `GET /v1/macros` is the one -- returns
+  # the Array, because wrapping a cursorless list in a page object invents a
+  # `next_cursor` the server never offered.
   class Page
     include Enumerable
 
@@ -16,21 +22,7 @@ module Chatly
     def initialize(raw)
       @raw = raw
       hash = raw.is_a?(Hash) ? raw : {}
-      @items =
-        if raw.is_a?(Array)
-          # A bare array, which a pagination-EXEMPT endpoint returns: it
-          # answers with a bounded, server-capped list and no cursor.
-          # `GET /v1/macros` is one, and `surface.json` marks it paged
-          # anyway. Treating an array as a single cursorless page means
-          # `list` returns a Page from every namespace and `auto_list`
-          # yields every row and then stops, instead of silently yielding
-          # nothing.
-          raw
-        elsif hash["items"].is_a?(Array)
-          hash["items"]
-        else
-          []
-        end
+      @items = hash["items"].is_a?(Array) ? hash["items"] : []
       # `nextCursor` is the documented key. `next_cursor` is accepted too, so
       # that one endpoint shipping the snake_case spelling does not silently
       # end pagination after a single page.

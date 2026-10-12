@@ -48,7 +48,7 @@ under Settings → API keys. It looks like `ck_live_…`.
 > (`@chatlychat/sdk-js`), which authenticates differently on purpose.
 
 A key reaches 140 of the API's 886 routes. The rest need a signed-in person
-and answer a key with `403` — a reaction records *who* reacted, and a key is
+and answer a key with `403` — a reaction records _who_ reacted, and a key is
 not a person. This gem only wraps routes a key can actually use; see
 [The escape hatch](#the-escape-hatch) for the ones without a typed method.
 
@@ -69,15 +69,15 @@ Chatly::Client.new(
 )
 ```
 
-| Option | Default | Notes |
-| --- | --- | --- |
-| `api_key` | — | required; an empty key raises `ArgumentError` at construction, not at the first call |
-| `api_url` | `https://api.chatlychat.com` | the production host. Override for another environment, or a test server |
-| `timeout` | `15` | seconds, applied to connect, read and write separately |
-| `retries` | `3` | see [Retries](#retries) |
-| `retry_policy` | — | full control; overrides `retries` |
-| `transport` | `Chatly::NetHttpTransport` | see [Injecting a transport](#injecting-a-transport) |
-| `user_agent` | `chatly-sdk-ruby/<version>` | |
+| Option         | Default                      | Notes                                                                                |
+| -------------- | ---------------------------- | ------------------------------------------------------------------------------------ |
+| `api_key`      | —                            | required; an empty key raises `ArgumentError` at construction, not at the first call |
+| `api_url`      | `https://api.chatlychat.com` | the production host. Override for another environment, or a test server              |
+| `timeout`      | `15`                         | seconds, applied to connect, read and write separately                               |
+| `retries`      | `3`                          | see [Retries](#retries)                                                              |
+| `retry_policy` | —                            | full control; overrides `retries`                                                    |
+| `transport`    | `Chatly::NetHttpTransport`   | see [Injecting a transport](#injecting-a-transport)                                  |
+| `user_agent`   | `chatly-sdk-ruby/<version>`  |                                                                                      |
 
 A client is immutable after construction and holds no connection state, so
 sharing one across threads is fine.
@@ -106,7 +106,7 @@ whose spelling you want to be certain of:
 chatly.contacts.upsert("externalId" => "user_42", "attributes" => { "plan_tier" => "pro" })
 ```
 
-Keys *inside* `attributes` and `properties` are yours — they are
+Keys _inside_ `attributes` and `properties` are yours — they are
 customer-defined and are never touched.
 
 ## Method reference
@@ -115,8 +115,8 @@ customer-defined and are never touched.
 
 ### Credential
 
-| Ruby | HTTP |
-| --- | --- |
+| Ruby     | HTTP                      |
+| -------- | ------------------------- |
 | `whoami` | `GET /v1/api-keys/whoami` |
 
 Call it first. It returns the workspace the key belongs to and the scopes it
@@ -125,18 +125,18 @@ integration time rather than a `403` from an unrelated endpoint weeks later.
 
 ### `contacts`
 
-| Ruby | HTTP |
-| --- | --- |
-| `contacts.list(query = {})` | `GET /v1/contacts` |
-| `contacts.auto_list(query = {})` | ↳ auto-paginating `Enumerator` |
-| `contacts.get(id)` | `GET /v1/contacts/{id}` |
-| `contacts.upsert(attrs)` | `POST /v1/contacts` |
-| `contacts.bulk_upsert(array_of_attrs)` | `POST /v1/contacts/bulk` |
-| `contacts.merge(id, merged_id)` | `POST /v1/contacts/{id}/merge` |
-| `contacts.add_tags(id, tag)` | `POST /v1/contacts/{id}/tags` |
-| `contacts.remove_tag(id, tag)` | `DELETE /v1/contacts/{id}/tags/{tag}` |
-| `contacts.unsubscribe(id, attrs = {})` | `POST /v1/contacts/{id}/unsubscribe` |
-| `contacts.journey(id)` | `GET /v1/contacts/{id}/journey` |
+| Ruby                                   | HTTP                                  |
+| -------------------------------------- | ------------------------------------- |
+| `contacts.list(query = {})`            | `GET /v1/contacts`                    |
+| `contacts.auto_list(query = {})`       | ↳ auto-paginating `Enumerator`        |
+| `contacts.get(id)`                     | `GET /v1/contacts/{id}`               |
+| `contacts.upsert(attrs)`               | `POST /v1/contacts`                   |
+| `contacts.bulk_upsert(array_of_attrs)` | `POST /v1/contacts/bulk`              |
+| `contacts.merge(id, merged_id)`        | `POST /v1/contacts/{id}/merge`        |
+| `contacts.add_tags(id, tag)`           | `POST /v1/contacts/{id}/tags`         |
+| `contacts.remove_tag(id, tag)`         | `DELETE /v1/contacts/{id}/tags/{tag}` |
+| `contacts.unsubscribe(id, attrs = {})` | `POST /v1/contacts/{id}/unsubscribe`  |
+| `contacts.journey(id)`                 | `GET /v1/contacts/{id}/journey`       |
 
 `upsert` fields: `externalId`, `email`, `phone`, `name`, `avatarUrl`,
 `locale`, `timezone`, `attributes`. All optional, and the API matches an
@@ -165,21 +165,21 @@ blocked contacts included — a block is a flag, not a deletion.
 
 ### `conversations`
 
-| Ruby | HTTP |
-| --- | --- |
-| `conversations.list(query = {})` | `GET /v1/conversations` |
-| `conversations.auto_list(query = {})` | ↳ auto-paginating `Enumerator` |
-| `conversations.get(id)` | `GET /v1/conversations/{id}` |
-| `conversations.messages(id, query = {})` | `GET /v1/conversations/{id}/messages` |
-| `conversations.auto_messages(id, query = {})` | ↳ auto-paginating `Enumerator` |
-| `conversations.send_message(id, attrs)` | `POST /v1/conversations/{id}/messages` |
-| `conversations.unattended(query = {})` | `GET /v1/conversations/unattended` |
-| `conversations.agent_handling(id)` | `GET /v1/conversations/{id}/agent-handling` |
-| `conversations.set_agent_handling(id, attrs)` | `PUT /v1/conversations/{id}/agent-handling` |
-| `conversations.generated_replies(id)` | `GET /v1/conversations/{id}/generated-replies` |
-| `conversations.generate_reply(id, attrs = {})` | `POST /v1/conversations/{id}/generated-replies` |
-| `conversations.scheduled_messages(id)` | `GET /v1/conversations/{id}/scheduled-messages` |
-| `conversations.schedule_message(id, attrs)` | `POST /v1/conversations/{id}/scheduled-messages` |
+| Ruby                                           | HTTP                                                         |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| `conversations.list(query = {})`               | `GET /v1/conversations`                                      |
+| `conversations.auto_list(query = {})`          | ↳ auto-paginating `Enumerator`                               |
+| `conversations.get(id)`                        | `GET /v1/conversations/{id}`                                 |
+| `conversations.messages(id, query = {})`       | `GET /v1/conversations/{id}/messages`                        |
+| `conversations.auto_messages(id, query = {})`  | ↳ auto-paginating `Enumerator`                               |
+| `conversations.send_message(id, attrs)`        | `POST /v1/conversations/{id}/messages`                       |
+| `conversations.unattended(query = {})`         | `GET /v1/conversations/unattended`                           |
+| `conversations.agent_handling(id)`             | `GET /v1/conversations/{id}/agent-handling`                  |
+| `conversations.set_agent_handling(id, attrs)`  | `PUT /v1/conversations/{id}/agent-handling`                  |
+| `conversations.generated_replies(id)`          | `GET /v1/conversations/{id}/generated-replies`               |
+| `conversations.generate_reply(id, attrs = {})` | `POST /v1/conversations/{id}/generated-replies`              |
+| `conversations.scheduled_messages(id)`         | `GET /v1/conversations/{id}/scheduled-messages`              |
+| `conversations.schedule_message(id, attrs)`    | `POST /v1/conversations/{id}/scheduled-messages`             |
 | `conversations.cancel_scheduled(scheduled_id)` | `DELETE /v1/conversations/scheduled-messages/{scheduled_id}` |
 
 **`send_message`, not `send`.** The cross-language method list calls this one
@@ -214,16 +214,16 @@ conversation's — note the path.
 
 ### `tickets`
 
-| Ruby | HTTP |
-| --- | --- |
-| `tickets.list(query = {})` | `GET /v1/tickets` |
-| `tickets.auto_list(query = {})` | ↳ auto-paginating `Enumerator` |
-| `tickets.comments(id)` | `GET /v1/tickets/{id}/comments` |
+| Ruby                                        | HTTP                                                 |
+| ------------------------------------------- | ---------------------------------------------------- |
+| `tickets.list(query = {})`                  | `GET /v1/tickets`                                    |
+| `tickets.auto_list(query = {})`             | ↳ auto-paginating `Enumerator`                       |
+| `tickets.comments(id)`                      | `GET /v1/tickets/{id}/comments`                      |
 | `tickets.for_conversation(conversation_id)` | `GET /v1/tickets/for-conversation/{conversation_id}` |
-| `tickets.queues` | `GET /v1/tickets/queues` |
-| `tickets.merge(id, loser_id)` | `POST /v1/tickets/{id}/merge` |
-| `tickets.split(id, attrs)` | `POST /v1/tickets/{id}/split` |
-| `tickets.bulk(attrs)` | `POST /v1/tickets/bulk` |
+| `tickets.queues`                            | `GET /v1/tickets/queues`                             |
+| `tickets.merge(id, loser_id)`               | `POST /v1/tickets/{id}/merge`                        |
+| `tickets.split(id, attrs)`                  | `POST /v1/tickets/{id}/split`                        |
+| `tickets.bulk(attrs)`                       | `POST /v1/tickets/bulk`                              |
 
 `merge(id, loser_id)`: the ticket in the path survives; the loser keeps its
 row and moves to status `merged`. There is no unmerge.
@@ -244,39 +244,38 @@ carries `status`, `assigneeUserId` (null to unassign), `priority` or `queueId`
 
 ### `macros`
 
-| Ruby | HTTP |
-| --- | --- |
-| `macros.list(query = {})` | `GET /v1/macros` |
-| `macros.auto_list(query = {})` | ↳ one page; see below |
-| `macros.create(attrs)` | `POST /v1/macros` |
-| `macros.update(id, attrs)` | `PATCH /v1/macros/{id}` |
-| `macros.delete(id)` | `DELETE /v1/macros/{id}` |
+| Ruby                           | HTTP                     |
+| ------------------------------ | ------------------------ |
+| `macros.list(query = {})`      | `GET /v1/macros`         |
+| `macros.create(attrs)`         | `POST /v1/macros`        |
+| `macros.update(id, attrs)`     | `PATCH /v1/macros/{id}`  |
+| `macros.delete(id)`            | `DELETE /v1/macros/{id}` |
 
 A macro is a canned reply plus optional conversation actions. `create`
 requires `name:` and `scope:` (`"workspace"`, `"team"` or `"personal"`), plus
 reply text, at least one action, or both. `teamId:` is required when `scope:`
 is `"team"`.
 
-`list` query: `scope:`, `team:`, `query:`, `language:`. **It is not actually
-paginated** — the API caps it at 200 rows ordered by usage rank and returns a
-bare array. This gem wraps that as a single cursorless `Chatly::Page`, so
-`next_cursor` is always `nil` and `auto_list` walks exactly one page.
+`list` query: `scope:`, `team:`, `query:`, `language:`. **It returns a plain
+`Array`, not a `Chatly::Page`** — this route is not paginated: the API caps it
+at 200 rows ordered by usage rank and answers with a bare array. There is no
+`macros.auto_list`, because there is no cursor to walk.
 
 ### `kb` — knowledge base / help centre
 
-| Ruby | HTTP |
-| --- | --- |
-| `kb.articles(query = {})` | `GET /v1/kb/articles` |
+| Ruby                           | HTTP                           |
+| ------------------------------ | ------------------------------ |
+| `kb.articles(query = {})`      | `GET /v1/kb/articles`          |
 | `kb.auto_articles(query = {})` | ↳ auto-paginating `Enumerator` |
-| `kb.article(slug)` | `GET /v1/kb/articles/{slug}` |
-| `kb.collections` | `GET /v1/kb/collections` |
+| `kb.article(slug)`             | `GET /v1/kb/articles/{slug}`   |
+| `kb.collections`               | `GET /v1/kb/collections`       |
 
 `article` takes a **slug**, not an id: `kb.article("how-to-reset-your-password")`.
 
 ### `search`
 
-| Ruby | HTTP |
-| --- | --- |
+| Ruby                           | HTTP             |
+| ------------------------------ | ---------------- |
 | `search.query(q, params = {})` | `GET /v1/search` |
 
 Full text across contacts, conversations, messages, tickets and KB articles.
@@ -292,10 +291,10 @@ chatly.search.query("password reset", kinds: %w[kb article])
 
 ### `events` — CDP
 
-| Ruby | HTTP |
-| --- | --- |
-| `events.track(attrs)` | `POST /v1/cdp/events` |
-| `events.list(query = {})` | `GET /v1/cdp/events` |
+| Ruby                           | HTTP                           |
+| ------------------------------ | ------------------------------ |
+| `events.track(attrs)`          | `POST /v1/cdp/events`          |
+| `events.list(query = {})`      | `GET /v1/cdp/events`           |
 | `events.auto_list(query = {})` | ↳ auto-paginating `Enumerator` |
 
 ```ruby
@@ -308,27 +307,27 @@ chatly.events.track(contactId: contact["id"], name: "trial_started",
 
 ### `webhooks` — delivery log
 
-| Ruby | HTTP |
-| --- | --- |
-| `webhooks.deliveries(query = {})` | `GET /v1/webhooks/deliveries` |
-| `webhooks.auto_deliveries(query = {})` | ↳ auto-paginating `Enumerator` |
-| `webhooks.delivery(id)` | `GET /v1/webhooks/deliveries/{id}` |
-| `webhooks.redeliver(id)` | `POST /v1/webhooks/deliveries/{id}/redeliver` |
+| Ruby                                   | HTTP                                          |
+| -------------------------------------- | --------------------------------------------- |
+| `webhooks.deliveries(query = {})`      | `GET /v1/webhooks/deliveries`                 |
+| `webhooks.auto_deliveries(query = {})` | ↳ auto-paginating `Enumerator`                |
+| `webhooks.delivery(id)`                | `GET /v1/webhooks/deliveries/{id}`            |
+| `webhooks.redeliver(id)`               | `POST /v1/webhooks/deliveries/{id}/redeliver` |
 
 This is the delivery **history**; registering endpoints is not key-accessible.
 `redeliver` queues the recorded payload against the endpoint's current URL
-and the outcome appears as a *new* attempt in the list. To verify an inbound
+and the outcome appears as a _new_ attempt in the list. To verify an inbound
 delivery, see [Webhook verification](#webhook-verification) — that needs no
 client.
 
 ### `reports`
 
-| Ruby | HTTP |
-| --- | --- |
-| `reports.overview(query = {})` | `GET /v1/reports/overview` |
-| `reports.agents(query = {})` | `GET /v1/reports/agents` |
+| Ruby                                       | HTTP                                   |
+| ------------------------------------------ | -------------------------------------- |
+| `reports.overview(query = {})`             | `GET /v1/reports/overview`             |
+| `reports.agents(query = {})`               | `GET /v1/reports/agents`               |
 | `reports.conversations_by_day(query = {})` | `GET /v1/reports/conversations-by-day` |
-| `reports.sla(query = {})` | `GET /v1/reports/sla` |
+| `reports.sla(query = {})`                  | `GET /v1/reports/sla`                  |
 
 All four take `days:` (the usual default is 30), or `from:` / `to:` as
 ISO-8601. `business_hours: true` opts duration metrics into the workspace's
@@ -339,9 +338,9 @@ calendar time. These are rollups, not lists — no cursor.
 
 ### `channels`
 
-| Ruby | HTTP |
-| --- | --- |
-| `channels.list` | `GET /v1/channels` |
+| Ruby               | HTTP                    |
+| ------------------ | ----------------------- |
+| `channels.list`    | `GET /v1/channels`      |
 | `channels.get(id)` | `GET /v1/channels/{id}` |
 
 Reads only: channel configuration needs a permission no API key is granted,
@@ -351,8 +350,8 @@ allowed-origins list means "any origin", which is invisible in the raw JSON.
 
 ### `billing`
 
-| Ruby | HTTP |
-| --- | --- |
+| Ruby            | HTTP                    |
+| --------------- | ----------------------- |
 | `billing.plans` | `GET /v1/billing/plans` |
 | `billing.usage` | `GET /v1/billing/usage` |
 
@@ -361,13 +360,13 @@ plan ceiling before the import does.
 
 ### `workspace`
 
-| Ruby | HTTP |
-| --- | --- |
-| `workspace.settings` | `GET /v1/workspace/settings` |
-| `workspace.labels` | `GET /v1/labels` |
-| `workspace.inboxes` | `GET /v1/inboxes` |
+| Ruby                              | HTTP                         |
+| --------------------------------- | ---------------------------- |
+| `workspace.settings`              | `GET /v1/workspace/settings` |
+| `workspace.labels`                | `GET /v1/labels`             |
+| `workspace.inboxes`               | `GET /v1/inboxes`            |
 | `workspace.team_members(team_id)` | `GET /v1/teams/{id}/members` |
-| `workspace.agent_skills` | `GET /v1/agents/skills` |
+| `workspace.agent_skills`          | `GET /v1/agents/skills`      |
 
 Grouped by what they answer — "what is configured in this workspace?" — not
 by URL prefix. All reads; creating a label, an inbox or a team is not
@@ -383,8 +382,24 @@ workspace that has not set any up, not an error.
 
 ## Pagination
 
-Every list endpoint returns `{ "items": [...], "nextCursor": "…" | null }`.
-You get both the single page and an auto-paginating `Enumerator`.
+Seven endpoints are cursor-paginated, and each returns
+`{ "items": [...], "nextCursor": "…" | null }`. For each you get both the
+single page and an auto-paginating `Enumerator`:
+
+| Page | Enumerator |
+| --- | --- |
+| `contacts.list` | `contacts.auto_list` |
+| `conversations.list` | `conversations.auto_list` |
+| `conversations.messages(id)` | `conversations.auto_messages(id)` |
+| `tickets.list` | `tickets.auto_list` |
+| `kb.articles` | `kb.auto_articles` |
+| `events.list` | `events.auto_list` |
+| `webhooks.deliveries` | `webhooks.auto_deliveries` |
+
+Every other list-shaped method returns what the API returns — an `Array` or an
+object — with no `Chatly::Page` wrapper and no `auto_*` twin, because a page
+object over a cursorless route advertises a `nextCursor` the server never
+offered and invites a paging loop that cannot terminate correctly.
 
 ```ruby
 page = chatly.contacts.list(limit: 100)
@@ -439,16 +454,16 @@ chatly.tickets.list(filter: ["status:open", "priority:high"], sort: "-createdAt"
 Every failure raises a `Chatly::Error` subclass. Nothing in this gem raises a
 bare `RuntimeError`, and nothing returns an error as a value.
 
-| Class | When | |
-| --- | --- | --- |
-| `Chatly::AuthenticationError` | 401 | the key is missing, malformed or revoked |
-| `Chatly::PermissionError` | 403 | the key is valid but lacks the scope — or the route needs a person |
-| `Chatly::NotFoundError` | 404 | no such resource *in this workspace* |
-| `Chatly::ConflictError` | 409 | conflicting write; `#idempotency_conflict?` names the replay case |
-| `Chatly::ValidationError` | 422, 400 | the request was understood and rejected |
-| `Chatly::RateLimitError` | 429 | carries `#retry_after` in seconds |
-| `Chatly::ServerError` | 5xx | |
-| `Chatly::TransportError` | — | DNS, connect, TLS, timeout; `#status` is `nil` |
+| Class                         | When     |                                                                    |
+| ----------------------------- | -------- | ------------------------------------------------------------------ |
+| `Chatly::AuthenticationError` | 401      | the key is missing, malformed or revoked                           |
+| `Chatly::PermissionError`     | 403      | the key is valid but lacks the scope — or the route needs a person |
+| `Chatly::NotFoundError`       | 404      | no such resource _in this workspace_                               |
+| `Chatly::ConflictError`       | 409      | conflicting write; `#idempotency_conflict?` names the replay case  |
+| `Chatly::ValidationError`     | 422, 400 | the request was understood and rejected                            |
+| `Chatly::RateLimitError`      | 429      | carries `#retry_after` in seconds                                  |
+| `Chatly::ServerError`         | 5xx      |                                                                    |
+| `Chatly::TransportError`      | —        | DNS, connect, TLS, timeout; `#status` is `nil`                     |
 
 All of them carry the same five fields, so you never have to parse a message
 string to decide what happened:
@@ -488,10 +503,10 @@ own `Exception#cause` carries the underlying `SocketError`,
 
 Two notes on fields, so neither surprises you in production:
 
-* `request_id` is read from the `x-request-id` response header. If the
+- `request_id` is read from the `x-request-id` response header. If the
   deployment you are talking to does not send that header, the field is
   `nil` — it is not synthesised.
-* `retry_after` prefers the `Retry-After` header and falls back to
+- `retry_after` prefers the `Retry-After` header and falls back to
   `details["retryAfterSeconds"]` in the error body. A `Retry-After` expressed
   as an HTTP date is **not** parsed into seconds; the field stays `nil`
   rather than being misread as a small integer.
@@ -530,7 +545,7 @@ pinned = chatly.with_idempotency_key(key)
 pinned.contacts.upsert(externalId: "user_42", email: "ada@example.com")
 ```
 
-Same key + same body replays the first response. Same key + a *different*
+Same key + same body replays the first response. Same key + a _different_
 body is a `409`, which you can recognise:
 
 ```ruby
@@ -551,7 +566,7 @@ Chatly signs every webhook delivery with the header
 x-livechat-signature: t=<unix seconds>,v1=<hex>
 ```
 
-where `v1` is HMAC-SHA256 over the bytes `` <t>.<raw body> `` — the timestamp
+where `v1` is HMAC-SHA256 over the bytes `<t>.<raw body>` — the timestamp
 is bound **into** the digest, which is what makes the replay window
 enforceable.
 

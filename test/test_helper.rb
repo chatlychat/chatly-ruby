@@ -61,6 +61,27 @@ class FakeTransport
   def self.page(items, next_cursor)
     json(200, { "items" => items, "nextCursor" => next_cursor })
   end
+
+  # The response SHAPE a given manifest entry's route actually returns.
+  #
+  # This exists because of a bug in two sibling SDKs: their fake transports
+  # answered EVERY route with a page envelope, so a client that wrongly
+  # wrapped a cursorless route in a page object looked fine in tests and
+  # raised a decode error in real use. A fake that answers every route the
+  # same way can only test the SDK against itself.
+  #
+  # So the shape comes from the manifest entry: `paged` gets a page envelope,
+  # a route documented as returning a bare array gets a bare array, and
+  # everything else gets a plain object.
+  BARE_ARRAY_ROUTES = [%w[macros list]].freeze
+
+  def self.for_entry(entry, items: [], next_cursor: nil)
+    key = [entry["ns"], entry["name"]]
+    return page(items, next_cursor) if entry["paged"]
+    return json(200, items) if BARE_ARRAY_ROUTES.include?(key)
+
+    json(200, {})
+  end
 end
 
 module ClientHelpers

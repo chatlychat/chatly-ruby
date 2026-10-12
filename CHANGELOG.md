@@ -28,11 +28,12 @@ the shared cross-language SDK contract (`packages/sdk-spec/CONTRACT.md`).
   A retried write reuses the Idempotency-Key of the attempt that failed.
 - Idempotency: every write mints a fresh UUID; `Client#with_idempotency_key`
   returns a derived client that pins one across calls.
-- Auto-pagination: `auto_list` / `auto_messages` / `auto_articles` /
-  `auto_deliveries` return a lazy `Enumerator`, so `each`, `lazy` and
-  `first(n)` all work and only the pages consumed are fetched. Stops on a null
-  cursor, and stops rather than spinning if the server repeats a cursor.
-  `Chatly::Pagination.each_page` walks page boundaries.
+- Auto-pagination for the seven cursor-paginated endpoints: `auto_list` /
+  `auto_messages` / `auto_articles` / `auto_deliveries` return a lazy
+  `Enumerator`, so `each`, `lazy` and `first(n)` all work and only the pages
+  consumed are fetched. Stops on a null cursor, and stops rather than spinning
+  if the server repeats a cursor. `Chatly::Pagination.each_page` walks page
+  boundaries.
 - `Chatly.verify_webhook_signature` — HMAC-SHA256 over `<t>.<raw body>`,
   constant-time compare, 300-second default tolerance, and `false` rather than
   an exception for every malformed input.
@@ -53,6 +54,6 @@ the shared cross-language SDK contract (`packages/sdk-spec/CONTRACT.md`).
 - `contacts.add_tags` sends one tag per call, because the route's body is
   `{"tag": "..."}`. An Array raises `ArgumentError` rather than sending
   something the API would silently drop.
-- `macros.list` is marked paged in the shared spec and is not paged by the
-  API; it returns a bare array capped at 200 rows, which this gem presents as
-  a single cursorless `Chatly::Page`.
+- `macros.list` returns a plain `Array` and has no `auto_list`. Its route is
+  `@PaginationExempt` and answers with a bare array capped at 200 rows, so
+  there is no cursor to walk and no page to wrap.

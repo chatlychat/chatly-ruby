@@ -83,11 +83,24 @@ class SurfaceLockTest < ChatlyTest
     path_args = names.each_index.map { |i| sentinel(i) }
     extras = EXTRA_ARGS.fetch([ns, name], [])
 
-    transport = FakeTransport.new { |_r, _n| FakeTransport.page([], nil) }
+    # The fake answers with the shape THIS route returns, taken from the
+    # manifest entry -- not a page envelope for everything. Two sibling SDKs
+    # shipped a decode error on `GET /v1/macros` because their fakes did the
+    # latter, and their surface suites stayed green through it.
+    transport = FakeTransport.new { |_r, _n| FakeTransport.for_entry(entry) }
     client = build_client(transport: transport)
     target = ns == "root" ? client : client.public_send(ns)
     ruby_name = RUBY_NAMES.fetch(name, name)
-    target.public_send(ruby_name, *path_args, *extras)
+    result = target.public_send(ruby_name, *path_args, *extras)
+
+    # A paged entry must hand back a Page; a non-paged one must not, because
+    # a Page over a cursorless route advertises a cursor that does not exist.
+    if entry["paged"]
+      assert_kind_of Chatly::Page, result, "#{ns}.#{ruby_name} is paged and did not return a Page"
+    else
+      refute_kind_of Chatly::Page, result,
+                     "#{ns}.#{ruby_name} is not paged in the manifest but returned a Page"
+    end
 
     assert_equal 1, transport.requests.length, "#{ns}.#{ruby_name} made #{transport.requests.length} requests"
     request = transport.requests.fetch(0)

@@ -104,9 +104,32 @@ class SurfaceTest < ChatlyTest
     assert_equal 55, SURFACE.length, "surface.json declares 55 methods"
   end
 
+  # Response shape per [ns, method], so the fake answers each route the way
+  # the route does. `nil` means "not paged": a plain object.
+  SHAPES = {
+    [:contacts, :list] => :paged,
+    [:conversations, :list] => :paged,
+    [:conversations, :messages] => :paged,
+    [:tickets, :list] => :paged,
+    [:kb, :articles] => :paged,
+    [:events, :list] => :paged,
+    [:webhooks, :deliveries] => :paged,
+    [:macros, :list] => :array
+  }.freeze
+
+  def shaped_transport(namespace, method)
+    FakeTransport.new do |_r, _n|
+      case SHAPES[[namespace, method]]
+      when :paged then FakeTransport.page([], nil)
+      when :array then FakeTransport.json(200, [])
+      else FakeTransport.json(200, {})
+      end
+    end
+  end
+
   def test_every_method_hits_the_right_verb_and_path
     SURFACE.each do |namespace, method, args, verb, path|
-      transport = FakeTransport.new { |_r, _n| FakeTransport.page([], nil) }
+      transport = shaped_transport(namespace, method)
       client = build_client(transport: transport)
       target = namespace.nil? ? client : client.public_send(namespace)
       target.public_send(method, *args)
@@ -122,7 +145,7 @@ class SurfaceTest < ChatlyTest
 
   def test_writes_carry_an_idempotency_key_and_reads_do_not
     SURFACE.each do |namespace, method, args, verb, _path|
-      transport = FakeTransport.new { |_r, _n| FakeTransport.page([], nil) }
+      transport = shaped_transport(namespace, method)
       client = build_client(transport: transport)
       target = namespace.nil? ? client : client.public_send(namespace)
       target.public_send(method, *args)

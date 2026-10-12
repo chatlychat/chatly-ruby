@@ -9,28 +9,18 @@ module Chatly
     class Macros < Base
       PATH = "/v1/macros"
 
-      # The macro library visible to this key.
+      # The macro library visible to this key, as a plain Array.
       #
-      # Honest note on paging: `surface.json` marks this endpoint paged, and
-      # the API does not page it -- the route is pagination-exempt and
-      # answers with a bare JSON array, capped at 200 rows and ordered by
-      # usage rank. `Chatly::Page` accepts an array as a single cursorless
-      # page, so this returns a `Page` like every other `list` and
-      # `next_cursor` is always nil.
+      # Not paginated, and not pretending to be: the handler is
+      # `@PaginationExempt` and answers with a bare JSON array, capped at 200
+      # rows and ordered by usage rank. So there is no `Chatly::Page` here, no
+      # `nextCursor`, and no `auto_list` -- there is no cursor to walk.
       #
       # @param query [Hash] `scope:` (`"workspace"`, `"team"`, `"personal"`),
       #   `team:` (a team id), `query:` (substring match), `language:`
-      # @return [Chatly::Page]
+      # @return [Array<Hash>]
       def list(query = {})
-        page(PATH, query)
-      end
-
-      # One page, and there is only ever one -- see {#list}. Here for
-      # surface parity, and harmless: it yields every row and stops.
-      #
-      # @return [Enumerator]
-      def auto_list(query = {})
-        auto(PATH, query)
+        http_get(PATH, query)
       end
 
       # Create a macro.

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "set"
 
 # CONTRACT.md §10.6 -- "The auto-paginator walks two pages and stops on a
 # null cursor" -- plus §5's second requirement, which is the one that bites:
@@ -113,25 +114,25 @@ class PaginationTest < ChatlyTest
     assert_equal ["c_1"], page.map { |c| c["id"] }
   end
 
-  # `GET /v1/macros` is pagination-exempt and answers with a bare array,
-  # while surface.json marks it paged. Treating an array as one cursorless
-  # page is what keeps `list` and `auto_list` honest for that endpoint
-  # instead of silently reporting zero rows.
-  def test_a_bare_array_response_is_one_cursorless_page
+  # `GET /v1/macros` is `@PaginationExempt` and answers with a bare array, so
+  # the method hands back the Array. It is deliberately NOT wrapped in a
+  # `Chatly::Page`: a page object over a cursorless list advertises a
+  # `next_cursor` the server never offered, and callers write paging loops
+  # against it that can never terminate correctly.
+  def test_macros_list_returns_the_bare_array_as_is
     transport = FakeTransport.new(FakeTransport.json(200, [{ "id" => "m_1" }, { "id" => "m_2" }]))
-    page = build_client(transport: transport).macros.list
+    result = build_client(transport: transport).macros.list
 
-    assert_equal 2, page.size
-    assert_nil page.next_cursor
-    refute_predicate page, :more?
+    assert_kind_of Array, result
+    refute_kind_of Chatly::Page, result
+    assert_equal %w[m_1 m_2], result.map { |m| m["id"] }
   end
 
-  def test_auto_list_over_a_bare_array_yields_everything_once
-    transport = FakeTransport.new(FakeTransport.json(200, [{ "id" => "m_1" }]))
-    ids = build_client(transport: transport).macros.auto_list.map { |m| m["id"] }
+  def test_macros_has_no_auto_paginator
+    client = build_client(transport: FakeTransport.new)
 
-    assert_equal ["m_1"], ids
-    assert_equal 1, transport.requests.length
+    refute_respond_to client.macros, :auto_list,
+                      "there is no cursor on GET /v1/macros, so there is nothing to walk"
   end
 
   def test_messages_paginate_under_a_conversation
@@ -145,22 +146,62 @@ class PaginationTest < ChatlyTest
     assert_equal "/v1/conversations/conv_1/messages", path_of(transport.requests[0])
   end
 
-  # Every paged namespace offers the pair. A missing `auto_*` is the kind of
-  # omission that is only noticed by the person who needed it.
-  def test_every_paged_endpoint_has_an_auto_variant
+  MANIFEST_PATH = File.expand_path("../../sdk-spec/surface.json", __dir__)
+
+  # The manifest's `paged` entry => the `auto_*` method that walks it.
+  AUTO_FOR = {
+    %w[contacts list] => :auto_list,
+    %w[conversations list] => :auto_list,
+    %w[conversations messages] => :auto_messages,
+    %w[tickets list] => :auto_list,
+    %w[kb articles] => :auto_articles,
+    %w[events list] => :auto_list,
+    %w[webhooks deliveries] => :auto_deliveries
+  }.freeze
+
+  # Floor, not a discovery: if the manifest's `paged` set shrinks because
+  # rows stopped parsing, this fails instead of quietly auditing less.
+  #
+  # It moved from 8 to 7 on 2026-10-12, and the reason matters: `macros.list`
+  # was removed from the paged set because its route is `@PaginationExempt`
+  # and returns a bare array -- not because the spec stopped parsing. Lower
+  # it again only with the same kind of reason written down.
+  PAGED_FLOOR = 7
+
+  # Every paged endpoint offers the pair, and nothing else offers an `auto_*`.
+  # A missing `auto_*` is the kind of omission only the person who needed it
+  # notices; a SPURIOUS one is a paging loop over a route with no cursor.
+  def test_every_paged_manifest_entry_has_an_auto_variant
+    skip "packages/sdk-spec/surface.json not reachable from here" unless File.exist?(MANIFEST_PATH)
+
+    entries = JSON.parse(File.read(MANIFEST_PATH)).fetch("entries")
+    paged = entries.select { |e| e["paged"] }.map { |e| [e.fetch("ns"), e.fetch("name")] }
+
+    assert_operator paged.length, :>=, PAGED_FLOOR,
+                    "the manifest's paged set is below the floor of #{PAGED_FLOOR} -- " \
+                    "either a row stopped parsing, or an endpoint genuinely stopped " \
+                    "paginating and the floor moves in the same change"
+    assert_equal AUTO_FOR.keys.sort, paged.sort,
+                 "the manifest's paged set and this SDK's auto-paginators disagree"
+
     client = build_client(transport: FakeTransport.new)
-    expected = {
-      contacts: %i[list auto_list],
-      conversations: %i[list auto_list messages auto_messages],
-      tickets: %i[list auto_list],
-      macros: %i[list auto_list],
-      kb: %i[articles auto_articles],
-      events: %i[list auto_list],
-      webhooks: %i[deliveries auto_deliveries]
-    }
-    expected.each do |namespace, methods|
-      methods.each do |method|
-        assert_respond_to client.public_send(namespace), method
+    AUTO_FOR.each do |(ns, name), auto|
+      namespace = client.public_send(ns)
+
+      assert_respond_to namespace, name
+      assert_respond_to namespace, auto
+    end
+  end
+
+  def test_no_unpaged_namespace_offers_an_auto_paginator
+    client = build_client(transport: FakeTransport.new)
+    allowed = AUTO_FOR.map { |(ns, _name), auto| [ns.to_sym, auto] }.to_set
+
+    Chatly::Client::NAMESPACES.each_key do |ns|
+      namespace = client.public_send(ns)
+      namespace.public_methods(false).grep(/\Aauto_/).each do |method|
+        assert_includes allowed, [ns, method],
+                        "#{ns}.#{method} walks a cursor the manifest does not declare"
       end
     end
   end
