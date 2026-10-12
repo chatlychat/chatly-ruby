@@ -60,7 +60,7 @@ Chatly::Client.new(api_key: ENV.fetch("CHATLY_API_KEY"))
 
 Chatly::Client.new(
   ENV.fetch("CHATLY_API_KEY"),
-  api_url: "https://chat.internal.example.net",    # self-hosted installs only
+  api_url: "http://localhost:3001",                # another environment, or a test server
   timeout: 15,                                     # seconds; connect, read and write
   retries: 3,                                      # total attempts, including the first
   retry_policy: Chatly::RetryPolicy.new(attempts: 5, base_delay: 1.0),
@@ -72,7 +72,7 @@ Chatly::Client.new(
 | Option | Default | Notes |
 | --- | --- | --- |
 | `api_key` | — | required; an empty key raises `ArgumentError` at construction, not at the first call |
-| `api_url` | `https://api.chatlychat.com` | the production host. Override only for a self-hosted install |
+| `api_url` | `https://api.chatlychat.com` | the production host. Override for another environment, or a test server |
 | `timeout` | `15` | seconds, applied to connect, read and write separately |
 | `retries` | `3` | see [Retries](#retries) |
 | `retry_policy` | — | full control; overrides `retries` |
