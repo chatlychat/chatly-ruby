@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ruby: ['3.0', '3.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+      # No bundler: the gem has no runtime dependencies and the suite runs on
+      # stdlib minitest.
+      - run: ruby -Ilib -Itest test/all.rb
+      - run: gem build chatly.gemspec
