@@ -3,6 +3,39 @@
 All notable changes to the `chatly` gem. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- **`Chatly::Page` refuses a body that is not a page envelope.** It used to
+  read `raw.is_a?(Hash) ? raw : {}`, so a non-page body became a Page with no
+  items and no cursor: `auto_list` over such a route yielded nothing and
+  returned normally, which reads as "this workspace is empty". A body with no
+  `items` array now raises `Chatly::Error` with `code: "sdk_not_a_page"`. An
+  absent, null or empty `nextCursor` is still a valid page — it means this was
+  the last one. Two sibling SDKs shipped the silent version of this against
+  `GET /v1/macros`, which is `@PaginationExempt`.
+
+### Added
+
+- `surface.lock.json` carries a `shape` column — the top-level response shape
+  this gem's decoder expects for each of the 55 routes (`array`, `page`,
+  `object` or `empty`), declared by hand in `test/surface_lock_test.rb` from
+  the handlers and NOT read from `surface.json`, so that
+  `scripts/check-sdk-surface-parity.mjs` diffs eight independent columns
+  against the manifest. The fake transport now answers each route with a body
+  of its own declared shape, and the suite asserts the value handed back
+  really has that shape.
+
+### Documentation
+
+- The pagination table said seven cursor-paginated endpoints and listed seven;
+  there are ten (`contacts.journey`, `conversations.unattended` and
+  `search.query` were missing, along with their `auto_*` twins).
+- `contacts.remove_tag` and `conversations.cancel_scheduled` are `DELETE`s that
+  answer `200` with a body; `macros.delete` is the only call on this surface
+  that returns `nil`.
+
 ## 0.1.0 — 2026-10-12
 
 First release. The official Ruby backend SDK for the Chatly API, implementing

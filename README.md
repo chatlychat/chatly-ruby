@@ -137,6 +137,7 @@ integration time rather than a `403` from an unrelated endpoint weeks later.
 | `contacts.remove_tag(id, tag)`         | `DELETE /v1/contacts/{id}/tags/{tag}` |
 | `contacts.unsubscribe(id, attrs = {})` | `POST /v1/contacts/{id}/unsubscribe`  |
 | `contacts.journey(id)`                 | `GET /v1/contacts/{id}/journey`       |
+| `contacts.auto_journey(id)`            | ↳ auto-paginating `Enumerator`        |
 
 `upsert` fields: `externalId`, `email`, `phone`, `name`, `avatarUrl`,
 `locale`, `timezone`, `attributes`. All optional, and the API matches an
@@ -157,6 +158,12 @@ API would quietly drop:
 %w[vip churn-risk].each { |tag| chatly.contacts.add_tags(id, tag) }
 ```
 
+`remove_tag` is a `DELETE` that **answers `200` with the surviving contact**,
+not `204` — the same object the tag `POST` returns. It is not the only one:
+see `conversations.cancel_scheduled`. On this surface `macros.delete` is the
+only call that really answers with no body, and it is the only one that
+returns `nil`.
+
 `unsubscribe` defaults to opting the contact out. It is also how you opt
 someone back in: `contacts.unsubscribe(id, unsubscribed: false)`.
 
@@ -174,6 +181,7 @@ blocked contacts included — a block is a flag, not a deletion.
 | `conversations.auto_messages(id, query = {})`  | ↳ auto-paginating `Enumerator`                               |
 | `conversations.send_message(id, attrs)`        | `POST /v1/conversations/{id}/messages`                       |
 | `conversations.unattended(query = {})`         | `GET /v1/conversations/unattended`                           |
+| `conversations.auto_unattended(query = {})`    | ↳ auto-paginating `Enumerator`                               |
 | `conversations.agent_handling(id)`             | `GET /v1/conversations/{id}/agent-handling`                  |
 | `conversations.set_agent_handling(id, attrs)`  | `PUT /v1/conversations/{id}/agent-handling`                  |
 | `conversations.generated_replies(id)`          | `GET /v1/conversations/{id}/generated-replies`               |
@@ -210,7 +218,8 @@ String; `JSON.generate` does not render a `Time` as ISO-8601, so pass
 `time.utc.iso8601` yourself.
 
 `cancel_scheduled` takes the **scheduled message's** id, not the
-conversation's — note the path.
+conversation's — note the path. It answers `200` with the row it cancelled,
+so the return value is a `Hash`, not `nil`.
 
 ### `tickets`
 
@@ -382,17 +391,21 @@ workspace that has not set any up, not an error.
 
 ## Pagination
 
-Seven endpoints are cursor-paginated, and each returns
-`{ "items": [...], "nextCursor": "…" | null }`. For each you get both the
-single page and an auto-paginating `Enumerator`:
+Ten endpoints are cursor-paginated, and each returns
+`{ "items": [...], "nextCursor": "…" | null }` — with whatever the route puts
+beside them. For each you get both the single page and an auto-paginating
+`Enumerator`:
 
 | Page                         | Enumerator                        |
 | ---------------------------- | --------------------------------- |
 | `contacts.list`              | `contacts.auto_list`              |
+| `contacts.journey(id)`       | `contacts.auto_journey(id)`       |
 | `conversations.list`         | `conversations.auto_list`         |
 | `conversations.messages(id)` | `conversations.auto_messages(id)` |
+| `conversations.unattended`   | `conversations.auto_unattended`   |
 | `tickets.list`               | `tickets.auto_list`               |
 | `kb.articles`                | `kb.auto_articles`                |
+| `search.query(q)`            | `search.auto_query(q)`            |
 | `events.list`                | `events.auto_list`                |
 | `webhooks.deliveries`        | `webhooks.auto_deliveries`        |
 
@@ -435,6 +448,14 @@ time):
 Chatly::Pagination.each_page(limit: 500) { |q| chatly.contacts.list(q) }
                   .each { |page| MyModel.insert_all(page.items) }
 ```
+
+A body that is **not** an envelope is an error here, not an empty page. If one
+of these routes ever answers with a bare array or a plain object,
+`Chatly::Page` raises a `Chatly::Error` with `code: "sdk_not_a_page"` rather
+than handing back a page of nothing — a walker that yielded zero items and
+returned normally would read as "this workspace is empty", which is a wrong
+answer rather than a missing one. Two sibling SDKs shipped exactly that,
+against `GET /v1/macros`.
 
 **Never sort or page on `id`.** Ids in this product are a mix of UUID v4 and
 v7, so id order is not time order. The cursor is the only correct sequence,

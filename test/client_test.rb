@@ -306,7 +306,10 @@ class ClientTest < ChatlyTest
   end
 
   def test_array_query_values_repeat_the_key_for_search_kinds
-    transport = FakeTransport.new(FakeTransport.json(200, {}))
+    # A page envelope, because `search.query` is paginated and `Chatly::Page`
+    # refuses a body that is not one. This test is about the query string, but
+    # it still has to answer the way the route does.
+    transport = FakeTransport.new(FakeTransport.page([], nil))
     build_client(transport: transport).search.query("password reset", kinds: %w[kb article])
 
     assert_equal "q=password%20reset&kinds=kb&kinds=article", query_of(transport.requests.first)

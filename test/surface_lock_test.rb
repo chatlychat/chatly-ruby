@@ -32,6 +32,115 @@ class SurfaceLockTest < ChatlyTest
   # only one, and it has to differ: `send` is `Object#send`.
   RUBY_NAMES = { "send" => "send_message" }.freeze
 
+  # The response shape THIS SDK's decoder expects from each route.
+  #
+  # ===== READ THIS BEFORE CHANGING A VALUE ==================================
+  #
+  # Hand-written, from the handlers. Deliberately NOT read from
+  # `surface.json`, even though this file loads that manifest for the path
+  # templates and the verb: a fixture derived from the manifest agrees with
+  # whatever the manifest says, including when it is wrong, and that is not
+  # hypothetical. `macros.list` carried `paged: true` for a day against a
+  # handler that is `@PaginationExempt` and answers with a bare array. Two
+  # sibling SDKs built paginators over it and shipped a decode error to real
+  # customers with green suites, because their fake transports answered
+  # EVERY route with `{ items, nextCursor }`.
+  #
+  # So this column is a second opinion. The suite below feeds each method the
+  # shape declared HERE, asserts the value handed back really has that shape,
+  # and writes the declaration into `surface.lock.json`;
+  # `scripts/check-sdk-surface-parity.mjs` then diffs eight such columns --
+  # one per backend SDK, each written independently -- against the manifest.
+  # A wrong manifest row needs eight authors to misread the same handler.
+  #
+  # Three rows look wrong and are not. `contacts.remove_tag` is a DELETE that
+  # answers 200 with the surviving contact, and `conversations.cancel_scheduled`
+  # a DELETE that answers 200 with the row it just cancelled (`@ZodResponse`
+  # `scheduledMessageSchema`); `macros.delete` is the only real 204 on this
+  # surface. And two of the four report routes are bare arrays, not objects.
+  EXPECTED_SHAPE = {
+    "root.whoami" => "object",
+
+    "contacts.list" => "page",
+    "contacts.get" => "object",
+    "contacts.upsert" => "object",
+    "contacts.bulk_upsert" => "object",
+    "contacts.merge" => "object",
+    "contacts.add_tags" => "object",
+    # A DELETE with a body: the surviving contact, same object the tag POST
+    # answers with.
+    "contacts.remove_tag" => "object",
+    "contacts.unsubscribe" => "object",
+    "contacts.journey" => "page",
+
+    "conversations.list" => "page",
+    "conversations.get" => "object",
+    "conversations.messages" => "page",
+    "conversations.send" => "object",
+    "conversations.unattended" => "page",
+    "conversations.agent_handling" => "object",
+    "conversations.set_agent_handling" => "object",
+    "conversations.generated_replies" => "array",
+    "conversations.generate_reply" => "object",
+    "conversations.scheduled_messages" => "array",
+    "conversations.schedule_message" => "object",
+    # Also a DELETE with a body: the cancelled row.
+    "conversations.cancel_scheduled" => "object",
+
+    "tickets.list" => "page",
+    "tickets.comments" => "array",
+    "tickets.for_conversation" => "array",
+    "tickets.queues" => "array",
+    "tickets.merge" => "object",
+    "tickets.split" => "object",
+    "tickets.bulk" => "object",
+
+    # `@PaginationExempt`, a bare array capped at 200 rows by usage rank.
+    # The row that cost two SDKs a production decode error.
+    "macros.list" => "array",
+    "macros.create" => "object",
+    "macros.update" => "object",
+    # The ONLY 204 here: `@HttpCode(204)`, and the handler returns nothing.
+    "macros.delete" => "empty",
+
+    "kb.articles" => "page",
+    "kb.article" => "object",
+    "kb.collections" => "array",
+
+    "search.query" => "page",
+
+    "events.track" => "object",
+    "events.list" => "page",
+
+    "webhooks.deliveries" => "page",
+    "webhooks.delivery" => "object",
+    "webhooks.redeliver" => "object",
+
+    "reports.overview" => "object",
+    # Arrays, both of them -- per-agent rows and per-day buckets, no envelope.
+    "reports.agents" => "array",
+    "reports.conversations_by_day" => "array",
+    "reports.sla" => "object",
+
+    "channels.list" => "array",
+    "channels.get" => "object",
+
+    "billing.plans" => "array",
+    "billing.usage" => "object",
+
+    "workspace.settings" => "object",
+    "workspace.labels" => "array",
+    "workspace.inboxes" => "array",
+    "workspace.team_members" => "array",
+    "workspace.agent_skills" => "object"
+  }.freeze
+
+  # The distribution of the column above, counted on 2026-10-12 by reading
+  # all 55 `@ZodResponse` schemas. Asserted below, because a column that said
+  # "object" 55 times would satisfy every other assertion in this file and be
+  # worth nothing.
+  SHAPE_COUNTS = { "array" => 14, "page" => 10, "object" => 30, "empty" => 1 }.freeze
+
   # Positional arguments a method needs BEYOND its path parameters, keyed by
   # the manifest's [ns, name]. A body, or a value the method accepts
   # positionally and puts in the body.
@@ -74,6 +183,33 @@ class SurfaceLockTest < ChatlyTest
     template.scan(/\{(\w+)\}/).flatten
   end
 
+  # The shape a decoded value actually HAS, named in the same four words.
+  #
+  # Ruby-specific, and worth saying out loud: this gem does not normalise
+  # keys. A decoded object keeps the server's camelCase exactly as sent (see
+  # the README's "Shapes" note), so the envelope probe looks for `nextCursor`
+  # and accepts `next_cursor` only because `Chatly::Page` itself accepts both
+  # spellings. A paginated route in this SDK hands back a `Chatly::Page`
+  # rather than the raw Hash, so that case is first.
+  def actual_shape(value)
+    case value
+    when nil then "empty"
+    when Chatly::Page then "page"
+    when Array then "array"
+    when Hash
+      envelope = value.key?("nextCursor") || value.key?("next_cursor")
+      value["items"].is_a?(Array) && envelope ? "page" : "object"
+    else "scalar(#{value.class})"
+    end
+  end
+
+  def declared_shape(ns, name)
+    EXPECTED_SHAPE.fetch("#{ns}.#{name}") do
+      raise "#{ns}.#{name} has no declared response shape -- add it to EXPECTED_SHAPE " \
+            "by reading the handler, not by copying surface.json"
+    end
+  end
+
   # Call one manifest entry and return the normalised "METHOD /path".
   def observe(entry)
     ns = entry.fetch("ns")
@@ -82,24 +218,35 @@ class SurfaceLockTest < ChatlyTest
     names = param_names(template)
     path_args = names.each_index.map { |i| sentinel(i) }
     extras = EXTRA_ARGS.fetch([ns, name], [])
+    shape = declared_shape(ns, name)
 
-    # The fake answers with the shape THIS route returns, taken from the
-    # manifest entry -- not a page envelope for everything. Two sibling SDKs
-    # shipped a decode error on `GET /v1/macros` because their fakes did the
-    # latter, and their surface suites stayed green through it.
-    transport = FakeTransport.new { |_r, _n| FakeTransport.for_entry(entry) }
+    # The fake answers with the shape THIS FILE declares for THIS route --
+    # not a page envelope for everything, and not the manifest's own `shape`
+    # column either, which would make the comparison at the bottom circular.
+    # Two sibling SDKs shipped a decode error on `GET /v1/macros` because
+    # their fakes did the former, and their surface suites stayed green.
+    transport = FakeTransport.new { |_r, _n| FakeTransport.for_shape(shape) }
     client = build_client(transport: transport)
     target = ns == "root" ? client : client.public_send(ns)
     ruby_name = RUBY_NAMES.fetch(name, name)
     result = target.public_send(ruby_name, *path_args, *extras)
 
-    # A paged entry must hand back a Page; a non-paged one must not, because
-    # a Page over a cursorless route advertises a cursor that does not exist.
-    if entry["paged"]
-      assert_kind_of Chatly::Page, result, "#{ns}.#{ruby_name} is paged and did not return a Page"
+    # The value handed back really has the declared shape. This is what
+    # catches a method that wraps or unwraps -- a `list` that returned
+    # `page.items`, or one that reached for `["items"]` on a bare-array route
+    # -- even when the request it issued was perfect.
+    assert_equal shape, actual_shape(result),
+                 "#{ns}.#{ruby_name} was answered with a #{shape} body and handed back " \
+                 "#{actual_shape(result)}"
+
+    # And a page route hands back a Page while nothing else does, because a
+    # Page over a cursorless route advertises a cursor that does not exist.
+    if shape == "page"
+      assert_kind_of Chatly::Page, result,
+                     "#{ns}.#{ruby_name} answers with a page envelope and did not return a Page"
     else
       refute_kind_of Chatly::Page, result,
-                     "#{ns}.#{ruby_name} is not paged in the manifest but returned a Page"
+                     "#{ns}.#{ruby_name} is a #{shape} route but returned a Page"
     end
 
     assert_equal 1, transport.requests.length, "#{ns}.#{ruby_name} made #{transport.requests.length} requests"
@@ -111,7 +258,9 @@ class SurfaceLockTest < ChatlyTest
 
     refute_match(/ZZpathparamZZ/, observed,
                  "#{ns}.#{ruby_name} did not put every path argument in the path")
-    { "ns" => ns, "name" => name, "http" => request.method, "path" => observed }
+    # Key order is fixed across all eight locks: ns, name, http, path, shape.
+    { "ns" => ns, "name" => name, "http" => request.method, "path" => observed,
+      "shape" => shape }
   end
 
   # Generate the lock, once per process, and write it.
@@ -134,9 +283,19 @@ class SurfaceLockTest < ChatlyTest
     end
   end
 
+  # The manifest's own five columns, for the comparison. `shape` is included
+  # here on purpose: this is the local half of what
+  # `scripts/check-sdk-surface-parity.mjs` does across eight SDKs, and the
+  # column on our side came from EXPECTED_SHAPE, read off the handlers.
   def expected_entries
-    manifest.fetch("entries").map { |entry| entry.slice("ns", "name", "http", "path") }
-            .sort_by { |e| [e.fetch("ns"), e.fetch("name")] }
+    manifest.fetch("entries").map do |entry|
+      row = entry.slice("ns", "name", "http", "path", "shape")
+      unless FakeTransport::SHAPES.include?(row["shape"])
+        raise "surface.json entry #{entry.fetch('ns')}.#{entry.fetch('name')} has no valid " \
+              "`shape` (got #{row['shape'].inspect})"
+      end
+      row
+    end.sort_by { |e| [e.fetch("ns"), e.fetch("name")] }
   end
 
   def test_the_lock_is_regenerated_and_equals_the_manifest
@@ -180,9 +339,14 @@ class SurfaceLockTest < ChatlyTest
     assert_equal entries.sort_by { |e| [e.fetch("ns"), e.fetch("name")] }, entries,
                  "lock entries must be sorted by ns then name"
     entries.each do |e|
-      assert_equal %w[http name ns path], e.keys.sort
+      # Order, not just presence: every lock on this surface is written
+      # ns, name, http, path, shape, so the eight files diff against each
+      # other by eye as well as by script.
+      assert_equal %w[ns name http path shape], e.keys
       assert_includes %w[GET POST PUT PATCH DELETE], e.fetch("http")
       assert e.fetch("path").start_with?("/v1/"), "#{e.fetch('path')} is not a /v1 path"
+      assert_includes FakeTransport::SHAPES, e.fetch("shape"),
+                      "#{e.fetch('ns')}.#{e.fetch('name')} has no valid shape in the lock"
     end
 
     assert_equal expected_entries, entries
@@ -203,5 +367,100 @@ class SurfaceLockTest < ChatlyTest
       assert_includes pairs, [entry.fetch("ns"), entry.fetch("name")]
     end
     assert_equal pairs.length, pairs.uniq.length, "the lock has a duplicate entry"
+  end
+  # Anti-vacuity for the declared column.
+  #
+  # Every other assertion in this file would be satisfied by a column that
+  # said "object" 55 times: the fake would answer every route with an object,
+  # every decoder would hand one back, and the lock would be internally
+  # consistent and useless. So the DISTRIBUTION is asserted, and it runs even
+  # when the manifest is out of reach (inside an installed gem) because it
+  # depends on nothing but this file.
+  #
+  # If the surface grows, these numbers move in the same change as the new
+  # rows -- but all four shapes must stay represented, and `empty` stays at
+  # exactly one until a second real 204 genuinely ships.
+  def test_the_declared_shape_column_is_complete_and_not_vacuous
+    assert_equal 55, EXPECTED_SHAPE.length, "a route lost its declared shape"
+
+    EXPECTED_SHAPE.each do |key, shape|
+      assert_includes FakeTransport::SHAPES, shape,
+                      "#{key} declares #{shape.inspect}, which is not one of the four shapes"
+    end
+
+    assert_equal SHAPE_COUNTS, EXPECTED_SHAPE.values.tally,
+                 "the declared shapes no longer match the handlers they were read from -- " \
+                 "if that is deliberate, move SHAPE_COUNTS in the same change and say why"
+  end
+
+  def test_the_declared_shapes_cover_exactly_the_manifest_routes
+    skip "packages/sdk-spec/surface.json not reachable from here" unless File.exist?(MANIFEST_PATH)
+
+    keys = manifest.fetch("entries").map { |e| "#{e.fetch('ns')}.#{e.fetch('name')}" }
+
+    assert_equal keys.sort, EXPECTED_SHAPE.keys.sort,
+                 "EXPECTED_SHAPE and surface.json disagree about which routes exist"
+  end
+
+  # One walker per route declared `page`, keyed the manifest's way so the set
+  # can be compared with the declaration rather than trusted.
+  def walkers(client)
+    {
+      "contacts.list" => -> { client.contacts.auto_list },
+      "contacts.journey" => -> { client.contacts.auto_journey("c_1") },
+      "conversations.list" => -> { client.conversations.auto_list },
+      "conversations.messages" => -> { client.conversations.auto_messages("v_1") },
+      "conversations.unattended" => -> { client.conversations.auto_unattended },
+      "tickets.list" => -> { client.tickets.auto_list },
+      "kb.articles" => -> { client.kb.auto_articles },
+      "search.query" => -> { client.search.auto_query("refund") },
+      "events.list" => -> { client.events.auto_list },
+      "webhooks.deliveries" => -> { client.webhooks.auto_deliveries }
+    }
+  end
+
+  # The negative direction: a paginator fed the WRONG shape must fail loudly.
+  #
+  # The lock test above proves each method copes with the shape this file says
+  # its route sends. It cannot prove the declaration MATTERS -- a decoder that
+  # ignored the body entirely would sail through it. So this feeds every
+  # auto-paginator a bare array where it expects `{ items, nextCursor }` and
+  # requires it to raise, which is exactly the failure the real API handed the
+  # .NET and Rust clients on `macros.list`.
+  #
+  # `Chatly::Page` used to answer this case with an EMPTY page -- `hash =
+  # raw.is_a?(Hash) ? raw : {}` -- so `auto_list` over a non-page body yielded
+  # nothing and returned normally, which reads as "this workspace has no
+  # contacts". It raises `sdk_not_a_page` now, and this test is what holds it
+  # there.
+  def test_every_auto_paginator_rejects_a_bare_array_where_a_page_is_expected
+    paged = EXPECTED_SHAPE.select { |_key, shape| shape == "page" }.keys
+
+    assert_equal 10, paged.length, "the page set changed size -- re-read the handlers"
+
+    client = build_client(
+      transport: FakeTransport.new { |_r, _n| FakeTransport.for_shape("array") }
+    )
+    walks = walkers(client)
+
+    # The floor that stops this test quietly shrinking: exactly the routes
+    # declared `page`, no more and no fewer.
+    assert_equal paged.sort, walks.keys.sort,
+                 "the walkers exercised here and the routes declared `page` disagree"
+
+    walks.each do |key, walk|
+      error = assert_raises(Chatly::Error, "#{key} accepted a bare array as a page") do
+        walk.call.first
+      end
+
+      assert_equal "sdk_not_a_page", error.code,
+                   "#{key} failed on a bare array, but not with the page-shape error"
+    end
+
+    # The single-shot sibling too: `contacts.list` wraps one page, and it has
+    # the same obligation as the walker over it.
+    error = assert_raises(Chatly::Error) { client.contacts.list }
+
+    assert_equal "sdk_not_a_page", error.code
   end
 end

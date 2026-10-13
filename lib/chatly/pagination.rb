@@ -10,10 +10,13 @@ module Chatly
   # reads like Ruby. The hashes inside `items` keep their camelCase keys --
   # see the README's "Shapes" note for why they are not converted.
   #
-  # Only the seven genuinely paginated endpoints return one of these. A route
+  # Only the ten genuinely paginated endpoints return one of these. A route
   # that answers with a bare array -- `GET /v1/macros` is the one -- returns
   # the Array, because wrapping a cursorless list in a page object invents a
   # `next_cursor` the server never offered.
+  #
+  # And a body that is not an envelope is an ERROR here, not an empty page.
+  # See `coerce` below for the bug that rule exists to prevent.
   class Page
     include Enumerable
 
@@ -21,13 +24,24 @@ module Chatly
 
     def initialize(raw)
       @raw = raw
-      hash = raw.is_a?(Hash) ? raw : {}
-      @items = hash["items"].is_a?(Array) ? hash["items"] : []
+      hash = coerce(raw)
+      @items = hash["items"]
       # `nextCursor` is the documented key. `next_cursor` is accepted too, so
       # that one endpoint shipping the snake_case spelling does not silently
       # end pagination after a single page.
       cursor = hash.key?("nextCursor") ? hash["nextCursor"] : hash["next_cursor"]
       @next_cursor = (cursor.is_a?(String) && !cursor.empty?) ? cursor : nil
+    end
+
+    # What a body IS, in a sentence, for the error below. Kept short: the
+    # whole body can be a megabyte of contacts.
+    def self.describe(raw)
+      case raw
+      when nil then "no body at all"
+      when Array then "a bare JSON array (#{raw.length} element(s))"
+      when Hash then "an object whose keys are #{raw.keys.map(&:to_s).sort.inspect}"
+      else "a #{raw.class}"
+      end
     end
 
     def each(&block)
@@ -77,6 +91,36 @@ module Chatly
 
     def inspect
       "#<Chatly::Page items=#{@items.size} next_cursor=#{@next_cursor.inspect}>"
+    end
+
+    private
+
+    # A page is an ENVELOPE -- an object with an `items` array -- and
+    # anything else raises.
+    #
+    # This used to read `raw.is_a?(Hash) ? raw : {}`, which turned a body
+    # that is not a page into a Page with no items and no cursor. The
+    # consequence was silent: `auto_list` over a route that answers with a
+    # bare array yielded nothing, finished normally, and read as "this
+    # workspace has no contacts". The same mistake reached production in two
+    # sibling SDKs from the other side -- a paginator built over
+    # `GET /v1/macros`, which is `@PaginationExempt` -- and there the
+    # generated decoder read the bare array as an empty page and returned it
+    # with a 200. A wrong answer is worse than an exception, so a body that
+    # is not a page is a loud failure.
+    #
+    # An absent, null or empty `nextCursor` is still a valid page: it means
+    # this was the last one. Only the `items` array is required.
+    def coerce(raw)
+      return raw if raw.is_a?(Hash) && raw["items"].is_a?(Array)
+
+      raise Error.new(
+        "Chatly: expected a cursor page -- an object with an \"items\" array -- but got " \
+        "#{Page.describe(raw)}. If the route is not paginated, call the single-shot " \
+        "method rather than its auto_* walker.",
+        code: "sdk_not_a_page",
+        body: raw.inspect[0, 500]
+      )
     end
   end
 

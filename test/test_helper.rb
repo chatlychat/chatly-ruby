@@ -62,25 +62,36 @@ class FakeTransport
     json(200, { "items" => items, "nextCursor" => next_cursor })
   end
 
-  # The response SHAPE a given manifest entry's route actually returns.
+  # A success body of ONE declared shape, exactly as the API sends it.
   #
-  # This exists because of a bug in two sibling SDKs: their fake transports
-  # answered EVERY route with a page envelope, so a client that wrongly
-  # wrapped a cursorless route in a page object looked fine in tests and
-  # raised a decode error in real use. A fake that answers every route the
-  # same way can only test the SDK against itself.
+  # The shape is handed IN by the caller, which is the whole point. The
+  # version of this helper that this replaced took a manifest ENTRY and read
+  # `paged` (plus a hardcoded list of one bare-array route) off it, so the
+  # fake agreed with whatever `surface.json` claimed -- including when it was
+  # wrong. `macros.list` was flagged `paged: true` for a day against a
+  # handler that is `@PaginationExempt`, two sibling SDKs built paginators
+  # over it, and their suites stayed green all the way to a decode error in
+  # production, because their fakes answered every route with
+  # `{ items, nextCursor }`.
   #
-  # So the shape comes from the manifest entry: `paged` gets a page envelope,
-  # a route documented as returning a bare array gets a bare array, and
-  # everything else gets a plain object.
-  BARE_ARRAY_ROUTES = [%w[macros list]].freeze
+  # So the caller declares the shape by hand (see `EXPECTED_SHAPE` in
+  # test/surface_lock_test.rb) and this only renders it.
+  SHAPES = %w[array page object empty].freeze
 
-  def self.for_entry(entry, items: [], next_cursor: nil)
-    key = [entry["ns"], entry["name"]]
-    return page(items, next_cursor) if entry["paged"]
-    return json(200, items) if BARE_ARRAY_ROUTES.include?(key)
-
-    json(200, {})
+  def self.for_shape(shape, items: [{ "id" => "x_1" }], next_cursor: nil)
+    case shape.to_s
+    when "page" then page(items, next_cursor)
+    when "array" then json(200, items)
+    when "object" then json(200, { "id" => "x_1" })
+    when "empty"
+      # A real 204: no body at all, not an empty string. A decoder that
+      # insists on parsing a body fails here, which is why `empty` is its
+      # own value rather than "an object you should ignore".
+      Chatly::Response.new(status: 204, headers: {}, body: nil)
+    else
+      raise ArgumentError,
+            "FakeTransport.for_shape: #{shape.inspect} is not one of #{SHAPES.join(', ')}"
+    end
   end
 end
 
