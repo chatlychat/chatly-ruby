@@ -248,21 +248,38 @@ class ClientTest < ChatlyTest
     assert_raises(ArgumentError) { client.contacts.remove_tag("c_1", "") }
   end
 
-  # §8 The escape hatch: 85 of the 140 key-accessible routes have no typed
-  # method, and must still be reachable with the same auth and idempotency.
+  # §8 The escape hatch, and finding an honest example for it is a moving
+  # target -- which is the thing this test now records.
+  #
+  # It used to reach for `POST /v1/tickets/{id}/time`, which carries no
+  # `@AllowApiKey()` at all: a key gets a 403, so the worked example could
+  # never have run. Then it reached for `DELETE /v1/webhooks/{id}`, which was
+  # key-accessible and unlisted -- and is a typed method a day later. As of
+  # 2026-10-14 the manifest is exactly the set of routes a key can reach, so
+  # there is no third route to name.
+  #
+  # So this exercises the OTHER live use: reaching past a typed method to send
+  # a header this gem does not surface. The route is real and typed
+  # (`contacts.bulk_upsert`); what the hatch adds is the header.
   def test_request_escape_hatch
-    transport = FakeTransport.new(FakeTransport.json(201, { "ok" => true }))
+    transport = FakeTransport.new(FakeTransport.json(200, { "ok" => true }))
     client = build_client(transport: transport)
-    result = client.request("POST", "/v1/tickets/t_1/time", { dry: true }, { minutes: 30 })
+    result = client.request(
+      "POST", "/v1/contacts/bulk", { dry: true },
+      { contacts: [{ email: "a@example.com" }] },
+      headers: { "X-Chatly-Trace" => "import-4812" }
+    )
 
     request = transport.requests.first
 
     assert_equal({ "ok" => true }, result)
     assert_equal "POST", request.method
-    assert_equal "/v1/tickets/t_1/time", path_of(request)
+    assert_equal "/v1/contacts/bulk", path_of(request)
     assert_equal "dry=true", query_of(request)
-    assert_equal({ "minutes" => 30 }, JSON.parse(request.body))
+    assert_equal({ "contacts" => [{ "email" => "a@example.com" }] }, JSON.parse(request.body))
     assert_equal "application/json", request.headers["content-type"]
+    # Lowercased by the dispatcher, like every other header it sends.
+    assert_equal "import-4812", request.headers["x-chatly-trace"]
     refute_nil request.headers["idempotency-key"]
     assert_equal "Bearer #{ClientHelpers::TEST_KEY}", request.headers["authorization"]
   end

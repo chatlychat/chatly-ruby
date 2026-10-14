@@ -158,6 +158,190 @@ module Chatly
       def cancel_scheduled(scheduled_id)
         http_delete(expand("#{PATH}/scheduled-messages/{scheduled_id}", scheduled_id))
       end
+
+      # Report how a conversation ended, so the AI funnels count it. Answers
+      # 201.
+      #
+      #   client.conversations.record_outcome(id, outcome: "resolved")
+      #   client.conversations.record_outcome(id, outcome: "escalated",
+      #                                       reason: "needs a refund")
+      #   client.conversations.record_outcome(id, outcome: "purchased",
+      #                                       outcomeRef: "order_8812",
+      #                                       valueCents: 4900, currency: "USD")
+      #
+      # Three words, and each lands somewhere a report already looks:
+      # `resolved` files an AI-resolution row with `source: "agent_report"`,
+      # the same bucket the visitor's own "this answered" chip lands in;
+      # `escalated` is **not a recording but an ACTION** -- the thread moves
+      # to `pending`, bot ownership is released, and your `reason` is posted
+      # to the receiving human as an internal note (so `reason` is effectively
+      # required there, and it is classified into the category the handoff
+      # funnel groups on); `purchased` writes a CDP event on the contact,
+      # which can complete a conversion goal.
+      #
+      # The body is strict and has three cross-field rules worth knowing
+      # before you build it: `valueCents` and `currency` are REFUSED on
+      # anything but `purchased` rather than dropped; `outcomeRef` is
+      # REQUIRED on `purchased`; and `currency` is required whenever
+      # `valueCents` is.
+      #
+      # **Chatly has no revenue report.** `valueCents` is stored and summed by
+      # nothing. The response's `feeds` field says in words what the outcome
+      # actually drives, because the caller cannot see the dashboard.
+      #
+      # `created: false` beside a 201 is SUCCESS, not a conflict: an equal
+      # outcome was already on record -- a replayed resolution, a repeated
+      # escalation inside a minute, or a purchase whose `outcomeRef` we
+      # already hold. That reference is unique per workspace forever, and it
+      # rather than the `Idempotency-Key` is what stops a double-counted
+      # purchase across processes.
+      #
+      # Nothing here CLOSES the conversation. Reporting an outcome is
+      # reporting, not finishing.
+      #
+      # Scopes: `conversations:write` AND `conversations:read`. The second is
+      # not implied, and without it every conversation in the workspace
+      # answers 404 -- indistinguishable from a wrong id.
+      def record_outcome(id, attributes = {}, **kwargs)
+        http_post(expand("#{PATH}/{id}/outcomes", id), merge_body(attributes, kwargs))
+      end
+
+      # What is already on record for this thread --
+      # `{"conversationId", "items"}`.
+      #
+      # An object that CARRIES `items` and has no cursor, so read `items`
+      # yourself rather than pointing a paginator at it. Merged from three
+      # tables, newest first, each arm capped server-side at 20.
+      #
+      # Every row carries `source`, and that is the field to read: it tells
+      # your own `agent_report` apart from the visitor's `visitor_chip`, and
+      # an escalation a human asked for (`agent_request`) apart from one a bot
+      # gave up on (`bot_handoff`). Note `recordId` is non-nil here while the
+      # POST can answer with nil -- an escalation hands back no row id.
+      def outcomes(id, query = {})
+        http_get(expand("#{PATH}/{id}/outcomes", id), query)
+      end
+
+      # Hand an open thread back to an assistant, after a human took it.
+      # Answers 201 with
+      # `{"returned" => true, "conversationId", "botId", "botName", "returnedAt"}`.
+      #
+      #   client.conversations.return_to_bot(id, bot_id)
+      #
+      # The reverse of an escalation, and it did not exist until late 2026:
+      # handoff was one-directional, so once a person answered one question
+      # the assistant was out of that conversation for good.
+      #
+      # `botId` is REQUIRED and is deliberately not defaulted to whoever owned
+      # the thread before -- a thread three assistants have touched has no
+      # obvious "the" bot, and guessing wrong means the visitor talks to the
+      # returns agent about a size exchange. `client.bots.list` has the
+      # choices.
+      #
+      # It refuses rather than quietly doing nothing: `open` is the only
+      # returnable status, so `pending` (a human was summoned and has not
+      # finished), `snoozed`, `closed` and `merged` are each a 400 naming the
+      # status; a `paused` or `draft` bot is a 400; an unknown bot is a 404;
+      # and a thread another bot already owns is a 400 naming that bot rather
+      # than a silent transfer. A thread the named bot ALREADY owns is a 201
+      # success and a no-op, so two teammates pressing the same button is
+      # fine.
+      #
+      # Scope: `conversations:assign`, higher than `conversations:write`,
+      # because this moves a thread to somebody else. Distinct from
+      # {#set_agent_handling}, which is a BYO agent reporting on ITSELF.
+      def return_to_bot(id, bot_id = nil, attributes = {}, **kwargs)
+        body = merge_body(attributes, kwargs)
+        body = { botId: bot_id }.merge(body) unless bot_id.nil?
+        http_post(expand("#{PATH}/{id}/return-to-bot", id), body)
+      end
+
+      # Conversations merged into or out of this thread -- `{"items"}`.
+      #
+      # Another object that carries `items` with no `nextCursor`: any
+      # "has items, therefore a page" heuristic reads this wrong, and a
+      # paginator over it either stops at one page or walks forever. Take the
+      # object.
+      #
+      # `relation` has exactly two values -- `merged_into` (this thread went
+      # into that one) and `merged_from` (that one came into this). And a
+      # LINK is indistinguishable from a MERGE except by `mergedAt`: linking
+      # two threads as duplicates sets the same pointer without closing
+      # anything, so it shows up here with `mergedAt: nil` and
+      # `status: "open"`. Note `mergedAt` is the other conversation's
+      # `closed_at`, not a merge timestamp, so it is nil whenever that row was
+      # never closed.
+      #
+      # 404 if the named conversation is not visible; `{"items" => []}` if it
+      # exists and has no links.
+      def linked(id, query = {})
+        http_get(expand("#{PATH}/{id}/linked", id), query)
+      end
+
+      # The inbox badge numbers: four scalars plus per-inbox, per-team and
+      # per-label buckets.
+      #
+      # **Read this before using it from a key.** Three of the seven figures
+      # are per-AGENT, and an API key is not a person: a key's "user id" is
+      # the key's own id, which matches no agent anywhere. So `mentions` and
+      # `participating` are 0 for every key, forever -- and `unread` is worse
+      # than useless rather than merely empty, because with no read-state row
+      # to compare against the predicate collapses to "has any contact
+      # message at all". That makes `unread` a workspace-wide total dressed
+      # as a personal badge, and `unattended`, `byInbox`, `byTeam` and
+      # `byLabel` are counted over the same inflated set.
+      #
+      # It is kept here because it is on the shared SDK surface and it does
+      # answer 200 -- but for a key, `conversations.unattended` is the honest
+      # queue depth. Use this one from a dashboard session, not a key.
+      #
+      # The one query parameter is spelled **`brand`** and takes a brand UUID.
+      # Not `brandId`: it is read raw with no schema, so `brandId` is neither
+      # read nor rejected and you get unscoped counts with a 200. It is also
+      # interpolated into SQL as a uuid, so a non-uuid value is a 500 -- cast
+      # it yourself.
+      #
+      # `mentions`, `participating` and `unattended` are SUBSETS of `unread`,
+      # so summing them double-counts. `byLabel` is capped at 50 buckets.
+      def unread_counts(query = {})
+        http_get("#{PATH}/unread-counts", query)
+      end
+
+      # Patch rich blocks on a message that has already been delivered.
+      # Answers `{"id", "blocks", "body"}`, where `id` is the MESSAGE's.
+      #
+      #   client.conversations.update_blocks(conversation_id, message_id,
+      #                                      patches: [{ id: "status", set: { text: "Shipped" } }])
+      #
+      # Two path parameters in this order: the CONVERSATION, then the
+      # MESSAGE. This is the route the integration that authored a card uses
+      # to keep it current -- an order card that says "Processing" when the
+      # parcel has shipped.
+      #
+      # `patches:` is 1-50 entries of `{id:, set:}`, each strict. A patch's
+      # `id` is a BLOCK id (resolvable at the top level or inside a grid's
+      # cards), not the message's and not the conversation's. `set` is a
+      # shallow merge over that block's own fields, re-validated against the
+      # block's type afterwards, and it may not carry `type` or `id`.
+      #
+      # It is all-or-nothing: an unknown block id is a 404 and an invalid
+      # MERGED result refuses the whole batch with a 400 rather than applying
+      # the rest. A message with no rich blocks is a 400, not a 404.
+      #
+      # `body` in the response may be unchanged even though `blocks` changed:
+      # the plain-text rendition is only re-rendered when the stored body was
+      # the rendition of the pre-patch blocks, so an author's hand-written
+      # sentence is never overwritten. It publishes `message.updated`, so open
+      # widgets and inboxes refresh without a reload.
+      #
+      # Scopes: `messages:write` AND `conversations:read` -- the second is not
+      # implied, and without it this answers 404 for every message.
+      def update_blocks(id, message_id, attributes = {}, **kwargs)
+        http_patch(
+          expand("#{PATH}/{id}/messages/{message_id}/blocks", id, message_id),
+          merge_body(attributes, kwargs)
+        )
+      end
     end
   end
 end

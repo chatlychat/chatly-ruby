@@ -15,11 +15,13 @@ TEST_FILES = %w[
   errors_test
   identity_test
   loopback_test
+  packaging_test
   pagination_test
   retries_test
   surface_lock_test
   surface_test
   webhooks_test
+  wire_bodies_test
 ].freeze
 
 TEST_FILES.each { |file| require_relative file }

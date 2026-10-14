@@ -142,7 +142,7 @@ module Chatly
 
   # Auth, URL building, idempotency, retries, error typing, JSON decoding.
   #
-  # Everything that is the same for all 55 methods lives here exactly once;
+  # Everything that is the same for all 159 methods lives here exactly once;
   # a resource class only knows a verb and a path.
   class Dispatcher
     # Verbs that must carry an `Idempotency-Key`. DELETE is in the list: the

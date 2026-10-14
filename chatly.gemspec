@@ -12,7 +12,9 @@ Gem::Specification.new do |spec|
   spec.description = <<~DESC
     Backend Ruby client for the Chatly REST API: contacts, conversations,
     messages, tickets, macros, knowledge base, search, CDP events, webhook
-    deliveries, reports, channels, billing and workspace configuration.
+    endpoints and deliveries, reports, triggers, bots and bot routes, brands,
+    customer cards, docs sources, email templates, AI providers, tone and
+    tools, channels, billing and workspace configuration.
     Includes typed errors, automatic retries with idempotency, auto-paginating
     enumerators, webhook signature verification and widget identity hashing.
     Zero runtime dependencies -- standard library only.
@@ -40,6 +42,13 @@ Gem::Specification.new do |spec|
   # monorepo, so a glob over the working tree would happily package a
   # sibling package's build output, and `git ls-files` silently omits a file
   # that has not been staged yet.
+  #
+  # The cost of listing them is that a NEW file can be forgotten here, and
+  # the failure is as bad as it gets: `lib/chatly.rb` requires every resource
+  # by name, so one missing row makes `require "chatly"` raise LoadError in a
+  # published gem while every test in the monorepo passes. Eleven files were
+  # one edit away from exactly that when the SDK went from 55 methods to 159.
+  # `test/packaging_test.rb` now compares this list against the directory.
   spec.files = [
     "CHANGELOG.md",
     "LICENSE",
@@ -58,16 +67,27 @@ Gem::Specification.new do |spec|
     "lib/chatly/version.rb",
     "lib/chatly/webhooks.rb",
     "lib/chatly/resources/base.rb",
+    "lib/chatly/resources/ai.rb",
     "lib/chatly/resources/billing.rb",
+    "lib/chatly/resources/bot_routes.rb",
+    "lib/chatly/resources/bots.rb",
+    "lib/chatly/resources/brands.rb",
+    "lib/chatly/resources/canvas_steps.rb",
     "lib/chatly/resources/channels.rb",
     "lib/chatly/resources/contacts.rb",
     "lib/chatly/resources/conversations.rb",
+    "lib/chatly/resources/customer_card_endpoints.rb",
+    "lib/chatly/resources/customer_cards.rb",
+    "lib/chatly/resources/docs_sources.rb",
+    "lib/chatly/resources/email_templates.rb",
     "lib/chatly/resources/events.rb",
     "lib/chatly/resources/kb.rb",
+    "lib/chatly/resources/knowledge_gaps.rb",
     "lib/chatly/resources/macros.rb",
     "lib/chatly/resources/reports.rb",
     "lib/chatly/resources/search.rb",
     "lib/chatly/resources/tickets.rb",
+    "lib/chatly/resources/triggers.rb",
     "lib/chatly/resources/webhooks.rb",
     "lib/chatly/resources/workspace.rb"
   ]

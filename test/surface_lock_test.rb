@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require_relative "surface_lock_table"
 
 # Parity evidence, produced by EXECUTING the client.
 #
@@ -12,7 +13,7 @@ require_relative "test_helper"
 # constant plus a template, so the literal `/v1/contacts/{id}` appears in no
 # source file).
 #
-# So this test calls all 55 methods against a fake transport, records the
+# So this test calls all 162 methods against a fake transport, records the
 # `METHOD /path` each one actually put on the wire, normalises the
 # interpolated segments back to the manifest's `{...}` names by POSITION, and
 # writes `surface.lock.json`. Then it asserts the lock equals the manifest.
@@ -20,6 +21,11 @@ require_relative "test_helper"
 # Running the suite regenerates the lock. That is deliberate: a lock
 # refreshed by a separate script is a lock somebody forgets to refresh.
 class SurfaceLockTest < ChatlyTest
+  # EXPECTED_SHAPE, SHAPE_COUNTS and EXTRA_ARGS -- the hand-declared column
+  # and the call arguments. In their own file since the surface reached 159
+  # routes; read the comments there before changing a value.
+  include SurfaceLockTable
+
   # Monorepo first, then the vendored copy a public mirror carries at its root
   # (a mirror has no `packages/` above the package).
   MANIFEST_PATH = [
@@ -31,142 +37,6 @@ class SurfaceLockTest < ChatlyTest
   # `surface.json` name => the Ruby method, where they differ. `send` is the
   # only one, and it has to differ: `send` is `Object#send`.
   RUBY_NAMES = { "send" => "send_message" }.freeze
-
-  # The response shape THIS SDK's decoder expects from each route.
-  #
-  # ===== READ THIS BEFORE CHANGING A VALUE ==================================
-  #
-  # Hand-written, from the handlers. Deliberately NOT read from
-  # `surface.json`, even though this file loads that manifest for the path
-  # templates and the verb: a fixture derived from the manifest agrees with
-  # whatever the manifest says, including when it is wrong, and that is not
-  # hypothetical. `macros.list` carried `paged: true` for a day against a
-  # handler that is `@PaginationExempt` and answers with a bare array. Two
-  # sibling SDKs built paginators over it and shipped a decode error to real
-  # customers with green suites, because their fake transports answered
-  # EVERY route with `{ items, nextCursor }`.
-  #
-  # So this column is a second opinion. The suite below feeds each method the
-  # shape declared HERE, asserts the value handed back really has that shape,
-  # and writes the declaration into `surface.lock.json`;
-  # `scripts/check-sdk-surface-parity.mjs` then diffs eight such columns --
-  # one per backend SDK, each written independently -- against the manifest.
-  # A wrong manifest row needs eight authors to misread the same handler.
-  #
-  # Three rows look wrong and are not. `contacts.remove_tag` is a DELETE that
-  # answers 200 with the surviving contact, and `conversations.cancel_scheduled`
-  # a DELETE that answers 200 with the row it just cancelled (`@ZodResponse`
-  # `scheduledMessageSchema`); `macros.delete` is the only real 204 on this
-  # surface. And two of the four report routes are bare arrays, not objects.
-  EXPECTED_SHAPE = {
-    "root.whoami" => "object",
-
-    "contacts.list" => "page",
-    "contacts.get" => "object",
-    "contacts.upsert" => "object",
-    "contacts.bulk_upsert" => "object",
-    "contacts.merge" => "object",
-    "contacts.add_tags" => "object",
-    # A DELETE with a body: the surviving contact, same object the tag POST
-    # answers with.
-    "contacts.remove_tag" => "object",
-    "contacts.unsubscribe" => "object",
-    "contacts.journey" => "page",
-
-    "conversations.list" => "page",
-    "conversations.get" => "object",
-    "conversations.messages" => "page",
-    "conversations.send" => "object",
-    "conversations.unattended" => "page",
-    "conversations.agent_handling" => "object",
-    "conversations.set_agent_handling" => "object",
-    "conversations.generated_replies" => "array",
-    "conversations.generate_reply" => "object",
-    "conversations.scheduled_messages" => "array",
-    "conversations.schedule_message" => "object",
-    # Also a DELETE with a body: the cancelled row.
-    "conversations.cancel_scheduled" => "object",
-
-    "tickets.list" => "page",
-    "tickets.comments" => "array",
-    "tickets.for_conversation" => "array",
-    "tickets.queues" => "array",
-    "tickets.merge" => "object",
-    "tickets.split" => "object",
-    "tickets.bulk" => "object",
-
-    # `@PaginationExempt`, a bare array capped at 200 rows by usage rank.
-    # The row that cost two SDKs a production decode error.
-    "macros.list" => "array",
-    "macros.create" => "object",
-    "macros.update" => "object",
-    # The ONLY 204 here: `@HttpCode(204)`, and the handler returns nothing.
-    "macros.delete" => "empty",
-
-    "kb.articles" => "page",
-    "kb.article" => "object",
-    "kb.collections" => "array",
-
-    "search.query" => "page",
-
-    "events.track" => "object",
-    "events.list" => "page",
-
-    "webhooks.deliveries" => "page",
-    "webhooks.delivery" => "object",
-    "webhooks.redeliver" => "object",
-
-    "reports.overview" => "object",
-    # Arrays, both of them -- per-agent rows and per-day buckets, no envelope.
-    "reports.agents" => "array",
-    "reports.conversations_by_day" => "array",
-    "reports.sla" => "object",
-
-    "channels.list" => "array",
-    "channels.get" => "object",
-
-    "billing.plans" => "array",
-    "billing.usage" => "object",
-
-    "workspace.settings" => "object",
-    "workspace.labels" => "array",
-    "workspace.inboxes" => "array",
-    "workspace.team_members" => "array",
-    "workspace.agent_skills" => "object"
-  }.freeze
-
-  # The distribution of the column above, counted on 2026-10-12 by reading
-  # all 55 `@ZodResponse` schemas. Asserted below, because a column that said
-  # "object" 55 times would satisfy every other assertion in this file and be
-  # worth nothing.
-  SHAPE_COUNTS = { "array" => 14, "page" => 10, "object" => 30, "empty" => 1 }.freeze
-
-  # Positional arguments a method needs BEYOND its path parameters, keyed by
-  # the manifest's [ns, name]. A body, or a value the method accepts
-  # positionally and puts in the body.
-  #
-  # Path parameters are not listed here -- they are generated from the
-  # manifest's own template, which is what makes the normalisation below
-  # honest rather than a restatement of the table.
-  EXTRA_ARGS = {
-    %w[contacts upsert] => [{ email: "a@example.com" }],
-    %w[contacts bulk_upsert] => [[{ email: "a@example.com" }]],
-    %w[contacts merge] => ["00000000-0000-7000-8000-000000000001"],
-    %w[contacts add_tags] => ["vip"],
-    %w[contacts unsubscribe] => [{}],
-    %w[conversations send] => [{ body: "hello" }],
-    %w[conversations set_agent_handling] => [{ state: "handled" }],
-    %w[conversations generate_reply] => [{}],
-    %w[conversations schedule_message] => [{ body: "later", sendAt: "2026-10-12T00:00:00Z" }],
-    %w[tickets merge] => ["00000000-0000-7000-8000-000000000002"],
-    %w[tickets split] => [{ title: "the other half" }],
-    %w[tickets bulk] => [{ ids: ["00000000-0000-7000-8000-000000000003"], action: "status" }],
-    %w[macros create] => [{ name: "n", scope: "workspace", body: "b" }],
-    %w[macros update] => [{ name: "renamed" }],
-    %w[search query] => ["a search term"],
-    %w[events track] => [{ contactId: "00000000-0000-7000-8000-000000000004", name: "evt" }],
-    %w[webhooks redeliver] => [{}]
-  }.freeze
 
   def manifest
     @manifest ||= JSON.parse(File.read(MANIFEST_PATH))
@@ -304,7 +174,7 @@ class SurfaceLockTest < ChatlyTest
     observed = ensure_lock!.fetch("entries")
     expected = expected_entries
 
-    # Diffed field by field, because `assert_equal` on two 55-element arrays
+    # Diffed field by field, because `assert_equal` on two 162-element arrays
     # of hashes prints something nobody can read.
     expected.zip(observed).each do |want, got|
       assert_equal want, got,
@@ -358,7 +228,7 @@ class SurfaceLockTest < ChatlyTest
   def test_the_lock_covers_every_manifest_entry
     skip "packages/sdk-spec/surface.json not reachable from here" unless File.exist?(MANIFEST_PATH)
 
-    assert_equal 55, manifest.fetch("entries").length,
+    assert_equal 162, manifest.fetch("entries").length,
                  "the manifest changed size -- re-read it before trusting this suite"
 
     pairs = ensure_lock!.fetch("entries").map { |e| [e.fetch("ns"), e.fetch("name")] }
@@ -371,7 +241,7 @@ class SurfaceLockTest < ChatlyTest
   # Anti-vacuity for the declared column.
   #
   # Every other assertion in this file would be satisfied by a column that
-  # said "object" 55 times: the fake would answer every route with an object,
+  # said "object" 162 times: the fake would answer every route with an object,
   # every decoder would hand one back, and the lock would be internally
   # consistent and useless. So the DISTRIBUTION is asserted, and it runs even
   # when the manifest is out of reach (inside an installed gem) because it
@@ -381,7 +251,7 @@ class SurfaceLockTest < ChatlyTest
   # rows -- but all four shapes must stay represented, and `empty` stays at
   # exactly one until a second real 204 genuinely ships.
   def test_the_declared_shape_column_is_complete_and_not_vacuous
-    assert_equal 55, EXPECTED_SHAPE.length, "a route lost its declared shape"
+    assert_equal 162, EXPECTED_SHAPE.length, "a route lost its declared shape"
 
     EXPECTED_SHAPE.each do |key, shape|
       assert_includes FakeTransport::SHAPES, shape,
@@ -406,15 +276,18 @@ class SurfaceLockTest < ChatlyTest
   # can be compared with the declaration rather than trusted.
   def walkers(client)
     {
-      "contacts.list" => -> { client.contacts.auto_list },
+      "bots.deliveries" => -> { client.bots.auto_deliveries("bot_1") },
+      "bots.list" => -> { client.bots.auto_list },
       "contacts.journey" => -> { client.contacts.auto_journey("c_1") },
+      "contacts.list" => -> { client.contacts.auto_list },
       "conversations.list" => -> { client.conversations.auto_list },
       "conversations.messages" => -> { client.conversations.auto_messages("v_1") },
       "conversations.unattended" => -> { client.conversations.auto_unattended },
-      "tickets.list" => -> { client.tickets.auto_list },
-      "kb.articles" => -> { client.kb.auto_articles },
-      "search.query" => -> { client.search.auto_query("refund") },
       "events.list" => -> { client.events.auto_list },
+      "kb.articles" => -> { client.kb.auto_articles },
+      "search.query" => -> { client.search.auto_query("a search term") },
+      "tickets.list" => -> { client.tickets.auto_list },
+      "triggers.list" => -> { client.triggers.auto_list },
       "webhooks.deliveries" => -> { client.webhooks.auto_deliveries }
     }
   end
@@ -436,7 +309,7 @@ class SurfaceLockTest < ChatlyTest
   def test_every_auto_paginator_rejects_a_bare_array_where_a_page_is_expected
     paged = EXPECTED_SHAPE.select { |_key, shape| shape == "page" }.keys
 
-    assert_equal 10, paged.length, "the page set changed size -- re-read the handlers"
+    assert_equal 13, paged.length, "the page set changed size -- re-read the handlers"
 
     client = build_client(
       transport: FakeTransport.new { |_r, _n| FakeTransport.for_shape("array") }

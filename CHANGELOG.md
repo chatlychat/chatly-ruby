@@ -18,14 +18,73 @@ All notable changes to the `chatly` gem. This project follows
 
 ### Added
 
+- **The other 107 routes.** The gem covered 55 of the routes in
+  `packages/sdk-spec/surface.json`; it now covers all 162, across eleven
+  new namespaces — `ai`, `bots`, `bot_routes`, `brands`, `canvas_steps`,
+  `customer_cards`, `customer_card_endpoints`, `docs_sources`,
+  `email_templates`, `knowledge_gaps`, `triggers` — and new methods on
+  `billing`, `channels`, `contacts`, `conversations`, `macros`, `reports`,
+  `tickets`, `webhooks` and `workspace`. Every route was verified against its
+  handler before being written, rather than against the manifest: the manifest
+  has been wrong in both directions before.
+- `Chatly::Client#me` (`GET /v1/me`), `webhooks.delete` and
+  `workspace.mine`, the three routes added to the manifest on 2026-10-14.
+  `me` is the **health check** to prefer: `whoami` needs `workspace:read`
+  while `/v1/me` needs no permission at all, so a key with no useful scope
+  still gets a truthful `200`. `webhooks.delete` closes an asymmetry — a key
+  could register a delivery target and never remove one, so a pipeline that
+  registered an endpoint per environment leaked one per run — and it is the
+  one delete on this surface that both answers a body (`{ok: true}`, a `200`)
+  and `404`s on a miss. `workspace.mine` is a bare `Array` holding exactly one
+  entry for a key, which makes it the cheap way to confirm which tenant a key
+  points at; it answers on a suspended workspace.
+- Three more auto-paginators, for the three genuinely cursored routes among
+  the new ones: `bots.auto_list`, `bots.auto_deliveries` and
+  `triggers.auto_list`. `bots.deliveries` has a cursor composed of the sort
+  value and the row id, so changing `sort:` midway through a walk silently
+  restarts at page one — `Pagination` carries the caller's query through
+  unchanged, which is what makes the walker safe.
+- `test/packaging_test.rb`, because `chatly.gemspec` lists `spec.files`
+  explicitly and `lib/chatly.rb` requires every resource by name: one
+  forgotten row would make `require "chatly"` raise `LoadError` for every
+  customer while the whole suite stayed green. Eleven files were one edit
+  away from exactly that. It also asserts every resource class is reachable
+  as a client namespace, so a loaded-but-unwired resource cannot read as a
+  feature.
 - `surface.lock.json` carries a `shape` column — the top-level response shape
-  this gem's decoder expects for each of the 55 routes (`array`, `page`,
+  this gem's decoder expects for each of the 162 routes (`array`, `page`,
   `object` or `empty`), declared by hand in `test/surface_lock_test.rb` from
   the handlers and NOT read from `surface.json`, so that
   `scripts/check-sdk-surface-parity.mjs` diffs eight independent columns
   against the manifest. The fake transport now answers each route with a body
   of its own declared shape, and the suite asserts the value handed back
   really has that shape.
+
+### Fixed
+
+- **`billing.usage` could not succeed.** `GET /v1/billing/usage` validates
+  `eventType` against a closed four-value list and throws a `400` before
+  reading anything, so `chatly.billing.usage` — the obvious call — was always
+  an error. It now takes the meter as its first argument and raises
+  `ArgumentError` locally when it is missing. `usage_daily` has the same gate;
+  `usage_monthly` deliberately does not read the parameter at all.
+- Two class comments that argued against the API. `Channels` said channel
+  writes "need `channels:write`, which no key-accessible route grants" (the
+  scope is grantable and four write routes accept it; what is closed is
+  `DELETE` and reading the current secret), and `Webhooks` said registering an
+  endpoint was not key-accessible while its own `list` pointed at the delivery
+  log — so there was no method for `GET /v1/webhooks` at all and nothing
+  obviously missing to notice. The `Reports` header claimed all its routes
+  took the same window parameters; seven spellings are now listed, because a
+  misspelled window parameter on those routes is silently the default window
+  and the report looks plausible.
+- The escape-hatch example, twice over. It reached for
+  `POST /v1/tickets/{id}/time`, which carries no `@AllowApiKey()` at all — a
+  key gets a `403`, so the snippet in the README could never have run — and
+  then for `DELETE /v1/webhooks/{id}`, which became a typed method a day
+  later. The manifest is now exactly the set of key-accessible routes, so the
+  documented uses are a route the API opens next and reaching past a typed
+  method with a header it does not surface.
 
 ### Documentation
 

@@ -150,6 +150,8 @@ class PaginationTest < ChatlyTest
 
   # The manifest's `paged` entry => the `auto_*` method that walks it.
   AUTO_FOR = {
+    %w[bots list] => :auto_list,
+    %w[bots deliveries] => :auto_deliveries,
     %w[contacts list] => :auto_list,
     %w[contacts journey] => :auto_journey,
     %w[conversations list] => :auto_list,
@@ -159,6 +161,7 @@ class PaginationTest < ChatlyTest
     %w[kb articles] => :auto_articles,
     %w[search query] => :auto_query,
     %w[events list] => :auto_list,
+    %w[triggers list] => :auto_list,
     %w[webhooks deliveries] => :auto_deliveries
   }.freeze
 
@@ -176,11 +179,23 @@ class PaginationTest < ChatlyTest
   #            `{ items, nextCursor }` -- `JourneyResponse`,
   #            `unattendedPageSchema` and `SearchResponse` respectively --
   #            and none was flagged.
+  #   10 -> 13 `bots.list`, `bots.deliveries` and `triggers.list` went in
+  #            with the other 104 routes this SDK was missing. All three take
+  #            a `cursor` query parameter and end in
+  #            `buildPaginatedResponse`, so all three answer
+  #            `{ items, nextCursor, hasMore }` -- which makes `hasMore` a
+  #            field of SEVEN page routes now, where the manifest's own prose
+  #            still names four. `bots.deliveries` has a wrinkle the other
+  #            twelve do not: its cursor is a composite of the sort value and
+  #            the row id, so a walk that CHANGES `sort` midway silently
+  #            restarts at page one. `Pagination.each_page` carries the
+  #            caller's query through unchanged, which is what makes that
+  #            safe here.
   #
   # Move it again only with that kind of reason written down. A floor lowered
   # because "the spec says fewer now" is a floor that cannot catch a row
   # falling out of the parse, which is the only thing it is for.
-  PAGED_FLOOR = 10
+  PAGED_FLOOR = 13
 
   # Every paged endpoint offers the pair, and nothing else offers an `auto_*`.
   # A missing `auto_*` is the kind of omission only the person who needed it

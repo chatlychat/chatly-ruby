@@ -38,16 +38,27 @@ module Chatly
     # `search` on a derived client still called the parent; building from a
     # table makes that class of bug impossible rather than merely tested.
     NAMESPACES = {
+      ai: Resources::Ai,
       billing: Resources::Billing,
+      bot_routes: Resources::BotRoutes,
+      bots: Resources::Bots,
+      brands: Resources::Brands,
+      canvas_steps: Resources::CanvasSteps,
       channels: Resources::Channels,
       contacts: Resources::Contacts,
       conversations: Resources::Conversations,
+      customer_card_endpoints: Resources::CustomerCardEndpoints,
+      customer_cards: Resources::CustomerCards,
+      docs_sources: Resources::DocsSources,
+      email_templates: Resources::EmailTemplates,
       events: Resources::Events,
       kb: Resources::Kb,
+      knowledge_gaps: Resources::KnowledgeGaps,
       macros: Resources::Macros,
       reports: Resources::Reports,
       search: Resources::Search,
       tickets: Resources::Tickets,
+      triggers: Resources::Triggers,
       webhooks: Resources::Webhooks,
       workspace: Resources::Workspace
     }.freeze
@@ -121,12 +132,53 @@ module Chatly
       request("GET", "/v1/api-keys/whoami")
     end
 
+    # The same question, one route lower, and the one to use as a HEALTH
+    # CHECK.
+    #
+    # `GET /v1/me` is discriminated on `principal`: a signed-in person gets
+    # their user and active membership, and a `ck_` key gets
+    # `{"principal" => "api_key", ...}` -- the same object {#whoami} answers
+    # with, because there is no user behind a key.
+    #
+    # The difference that matters is the permission. {#whoami} requires
+    # `workspace:read`; this route requires NOTHING, deliberately -- what a
+    # key learns here is its own workspace id and its own grant list, the two
+    # things it presented in order to ask, so a scope requirement could only
+    # withhold a credential's description from the credential itself. That is
+    # what makes this the liveness check: **a key with no useful scope still
+    # gets a 200, and that answer is true.**
+    #
+    #   client.me["principal"]  # => "api_key"
+    #
+    # It also answers on a SUSPENDED workspace, so it cannot tell you the
+    # workspace is healthy -- only that the credential is real and which
+    # tenant it points at. `client.billing.summary` is the one that says
+    # whether the workspace can trade.
+    def me
+      request("GET", "/v1/me")
+    end
+
     # The escape hatch.
     #
-    # 140 of the API's 886 routes accept a `ck_` key and only 55 have a typed
-    # method here. This reaches the other 85 with the same auth, idempotency,
-    # retry and error handling -- so hitting an unwrapped route does not mean
-    # abandoning the SDK and hand-rolling HTTP with a bearer token.
+    # Every route in `packages/sdk-spec/surface.json` -- all 162 -- has a
+    # typed method here, and as of 2026-10-14 that manifest is exactly the
+    # set of routes carrying `@AllowApiKey()`: there is no key-accessible
+    # route left for this method to reach. It is here for the two cases that
+    # outlive that snapshot.
+    #
+    # The first is a route the API opens NEXT. That gap is not hypothetical
+    # -- `DELETE /v1/webhooks/{id}` spent a day in it, key-accessible and
+    # unlisted, and the typed method arrived after the manifest did.
+    #
+    # The second is reaching past a typed method: a query parameter, a header
+    # or a body field this gem does not surface yet. Either way you get the
+    # same auth, idempotency, retry and error handling instead of
+    # hand-rolling HTTP with a bearer token.
+    #
+    # Do NOT use it to call a route a key cannot use. Those answer 403 and no
+    # amount of escape hatch changes that -- `POST /v1/tickets/{id}/time`
+    # carries no `@AllowApiKey()`, and this gem's own README used it as the
+    # worked example for a year.
     #
     #   client.request("POST", "/v1/tickets/#{id}/time",
     #                  nil, { minutes: 30, note: "call" })
