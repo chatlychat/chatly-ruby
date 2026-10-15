@@ -146,6 +146,7 @@ class WireBodiesTest < ChatlyTest
       ->(c) { c.customer_card_endpoints.activate_secret("cce_1") },
       ->(c) { c.docs_sources.webhook("src_1") },
       ->(c) { c.knowledge_gaps.draft("gap_1") },
+      ->(c) { c.visitors.start_conversation("cont_1") },
       ->(c) { c.webhooks.delete("w_1") }
     ].each do |call|
       transport, client = send_one
@@ -158,5 +159,101 @@ class WireBodiesTest < ChatlyTest
       # Still a write, so it still carries an idempotency key.
       refute_nil request.headers["idempotency-key"]
     end
+  end
+
+  # `visitors.start_conversation`, asserted as ONE request rather than as a
+  # member of the group above.
+  #
+  # The group asserts a property across eleven callables and names none of
+  # them, so it cannot say that the id reached the PATH -- a method that
+  # dropped the argument and posted `/v1/visitors//start-conversation` sends
+  # no body and an idempotency key too, and would pass there. This one pins
+  # the interpolated path, the verb and the header for the route whose entire
+  # input is that one path parameter.
+  #
+  # And the key is REQUIRED here, not merely honoured: the controller declares
+  # `@RequireIdempotencyKey()` at class level and this handler does not opt
+  # out, unlike `channels.rotate_secret`. Without the header the API answers
+  # 428, so the header is not tidiness -- it is the difference between the
+  # call working and not.
+  def test_start_conversation_sends_only_the_contact_id_in_the_path
+    transport, client = send_one
+    client.visitors.start_conversation("cont_1")
+
+    assert_equal 1, transport.requests.length
+    request = transport.requests.fetch(0)
+
+    assert_equal "POST", request.method
+    assert_equal "/v1/visitors/cont_1/start-conversation", path_of(request)
+    assert_nil query_of(request), "this route takes no query parameters"
+    assert_nil request.body, "this route takes no body -- not `{}`, not `\"\"`"
+    assert_nil request.headers["content-type"], "no body means no content-type"
+    refute_nil request.headers["idempotency-key"],
+               "the controller requires an Idempotency-Key; without one this is a 428"
+  end
+
+  # A contact id with a slash or a space in it must not escape the path
+  # segment. The id is the ONLY input this route has, so the escaping is the
+  # only input validation there is.
+  def test_start_conversation_escapes_the_contact_id_into_one_segment
+    transport, client = send_one
+    client.visitors.start_conversation("a/b c")
+
+    assert_equal "/v1/visitors/a%2Fb%20c/start-conversation",
+                 path_of(transport.requests.fetch(0))
+  end
+
+  def test_start_conversation_refuses_an_empty_contact_id_before_calling
+    transport, client = send_one
+
+    assert_raises(ArgumentError) { client.visitors.start_conversation("") }
+    assert_empty transport.requests, "an empty id must not reach the network"
+  end
+
+  # The per-contact 429, in the envelope the server ACTUALLY sends.
+  #
+  # Worth a test of its own because the shape is counter-intuitive and was
+  # described wrongly while this method was being written. The per-contact
+  # limit throws `RateLimitedError(ttl)` in
+  # `apps/api/.../proactive-outreach-guard.ts`, and `app-exception.filter.ts`
+  # sets NO response headers -- it sends `wireError(err.toJSON())` and
+  # nothing else. The only thing that synthesises a plain `Retry-After` is an
+  # onSend hook in `main.ts` reading the per-bucket headers
+  # `@nestjs/throttler` emits, and this refusal does not come from the
+  # throttler. So there is no `Retry-After` on it and the wait is only in the
+  # body.
+  #
+  # The fixture therefore sends NO `retry-after` header on purpose. Inventing
+  # one would make this test agree with a client that only reads the header,
+  # which is the failure it exists to catch: `#retry_after` has to come from
+  # `details.retryAfterSeconds` here, and a reader who waits on the header
+  # alone has nothing to wait on.
+  def test_the_per_contact_limit_carries_its_wait_in_the_body_not_a_header
+    response = FakeTransport.json(429, {
+                                    "error" => {
+                                      "code" => "rate_limited",
+                                      "message" => "Too many requests",
+                                      "details" => { "retryAfterSeconds" => 1800 }
+                                    }
+                                  })
+    # The premise, asserted rather than assumed: if anyone ever adds a
+    # `retry-after` to this fixture, the test below stops proving the body
+    # fallback and this line says so instead of passing quietly.
+    assert_nil response.headers["retry-after"],
+               "the fixture must NOT carry a Retry-After -- that is the whole point"
+
+    transport = FakeTransport.new { |_r, _n| response }
+    client = build_client(transport: transport, retries: 1)
+
+    error = assert_raises(Chatly::RateLimitError) do
+      client.visitors.start_conversation("cont_1")
+    end
+
+    assert_equal 429, error.status
+    assert_equal "rate_limited", error.code
+    assert_equal 1800, error.retry_after,
+                 "retry_after must fall back to details.retryAfterSeconds when the " \
+                 "header is absent -- reading the header alone yields nothing to wait on"
+    assert_equal 1800, error.details["retryAfterSeconds"]
   end
 end

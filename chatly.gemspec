@@ -88,6 +88,7 @@ Gem::Specification.new do |spec|
     "lib/chatly/resources/search.rb",
     "lib/chatly/resources/tickets.rb",
     "lib/chatly/resources/triggers.rb",
+    "lib/chatly/resources/visitors.rb",
     "lib/chatly/resources/webhooks.rb",
     "lib/chatly/resources/workspace.rb"
   ]

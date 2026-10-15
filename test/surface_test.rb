@@ -229,6 +229,9 @@ class SurfaceTest < ChatlyTest
     [:triggers, :delete, ["trg_1"], "DELETE", "/v1/triggers/trg_1"],
     [:triggers, :list, [], "GET", "/v1/triggers"],
 
+    [:visitors, :start_conversation, ["c_1"], "POST",
+     "/v1/visitors/c_1/start-conversation"],
+
     [:webhooks, :create,
      [{ url: "https://x.test/hooks", eventTypes: ["conversation.created"] }],
      "POST", "/v1/webhooks"],
@@ -260,7 +263,7 @@ class SurfaceTest < ChatlyTest
   RENAMED = { "send" => "send_message" }.freeze
 
   def test_the_table_covers_the_whole_surface
-    assert_equal 162, SURFACE.length, "surface.json declares 162 methods"
+    assert_equal 163, SURFACE.length, "surface.json declares 163 methods"
   end
 
   # Response shape per [ns, method], so the fake answers each route the way

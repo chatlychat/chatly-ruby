@@ -59,6 +59,7 @@ module Chatly
       search: Resources::Search,
       tickets: Resources::Tickets,
       triggers: Resources::Triggers,
+      visitors: Resources::Visitors,
       webhooks: Resources::Webhooks,
       workspace: Resources::Workspace
     }.freeze

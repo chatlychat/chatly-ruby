@@ -7,6 +7,14 @@ All notable changes to the `chatly` gem. This project follows
 
 ### Changed
 
+- **`bots.rotate_external_secret(id, activate_at: nil)` can schedule the
+  switch.** `activate_at:` takes a `Time` (sent as UTC ISO 8601 with
+  milliseconds and a `Z`) or an ISO 8601 String (sent verbatim) and goes up
+  as exactly `{"activateAt": "..."}`; the old secret keeps signing until that
+  instant. The answer now carries `activatesAt` — `nil` when the new secret
+  is already signing. The no-argument call is unchanged on the wire: no body,
+  still the hard cut. Any other type raises `ArgumentError` before sending.
+
 - **`Chatly::Page` refuses a body that is not a page envelope.** It used to
   read `raw.is_a?(Hash) ? raw : {}`, so a non-page body became a Page with no
   items and no cursor: `auto_list` over such a route yielded nothing and

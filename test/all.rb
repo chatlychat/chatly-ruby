@@ -18,6 +18,7 @@ TEST_FILES = %w[
   packaging_test
   pagination_test
   retries_test
+  rotate_external_secret_test
   surface_lock_test
   surface_test
   webhooks_test

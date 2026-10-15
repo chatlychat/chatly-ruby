@@ -127,15 +127,37 @@ module Chatly
       end
 
       # Mint a new signing secret for an external agent. Answers 201 with
-      # `{"signingSecret" => "chsec_..."}` -- that field name, not `secret`
-      # and not `token`. No body goes up.
+      # `{"signingSecret" => "chsec_...", "activatesAt" => nil | "<ISO 8601>"}`
+      # -- that field name, not `secret` and not `token`.
       #
-      # **There is no overlap window.** The previous secret stops verifying
-      # the instant this returns, so deploy the new one to your verifier
-      # first. (Compare `customer_card_endpoints.rotate_secret`, which is
-      # deliberately two-phase; these two are not the same pattern.)
-      def rotate_external_secret(id)
-        http_post(expand("#{PATH}/{id}/external/rotate-secret", id))
+      # **Without `activate_at:` it is a hard cut, exactly as it always was**:
+      # no body goes up, `activatesAt` is nil, and the previous secret stops
+      # signing the instant this returns -- so deploy the new one to your
+      # verifier first.
+      #
+      # **With `activate_at:` there is an overlap window.** Pass a `Time` (sent
+      # as UTC ISO 8601 with milliseconds and a `Z`) or an ISO 8601 String with
+      # a `Z` or an offset (sent verbatim; the server validates it). The body
+      # is `{"activateAt" => "..."}` and nothing else. The OLD secret keeps
+      # signing every delivery until that instant and the new one signs from
+      # it; `activatesAt` in the answer is when the switch happens. There is
+      # ONE signature per delivery, so your verifier should accept BOTH
+      # secrets for the window. More than 168 hours ahead (by the SERVER'S
+      # clock) is a 400; an instant already past is a hard cut, as is a
+      # deferred rotation on an agent with no usable secret today -- both
+      # answer `activatesAt: nil`, so read that field rather than assuming.
+      #
+      # (Compare `customer_card_endpoints.rotate_secret`, which is two-phase by
+      # order of operations rather than by time; these are not the same
+      # pattern.)
+      #
+      # @param activate_at [Time, String, nil] when the new secret starts
+      #   signing; nil (the default) is the hard cut
+      def rotate_external_secret(id, activate_at: nil)
+        path = expand("#{PATH}/{id}/external/rotate-secret", id)
+        return http_post(path) if activate_at.nil?
+
+        http_post(path, { "activateAt" => rotation_instant(activate_at) })
       end
 
       # One page of an external agent's delivery ledger, newest first.
@@ -259,6 +281,22 @@ module Chatly
       # conversation id or contact in them.
       def analytics(id, query = {})
         http_get(expand("#{PATH}/{id}/analytics", id), query)
+      end
+
+      private
+
+      # `Time` -> UTC ISO 8601 with milliseconds and `Z`; a String verbatim.
+      # Anything else is refused here rather than sent through `JSON.generate`,
+      # which would stringify a Date or a number into something the route
+      # rejects.
+      def rotation_instant(value)
+        case value
+        when Time then value.getutc.iso8601(3)
+        when String then value
+        else
+          raise ArgumentError,
+                "activate_at must be a Time or an ISO 8601 String, got #{value.class}"
+        end
       end
     end
   end

@@ -13,7 +13,7 @@ require_relative "surface_lock_table"
 # constant plus a template, so the literal `/v1/contacts/{id}` appears in no
 # source file).
 #
-# So this test calls all 162 methods against a fake transport, records the
+# So this test calls all 163 methods against a fake transport, records the
 # `METHOD /path` each one actually put on the wire, normalises the
 # interpolated segments back to the manifest's `{...}` names by POSITION, and
 # writes `surface.lock.json`. Then it asserts the lock equals the manifest.
@@ -174,7 +174,7 @@ class SurfaceLockTest < ChatlyTest
     observed = ensure_lock!.fetch("entries")
     expected = expected_entries
 
-    # Diffed field by field, because `assert_equal` on two 162-element arrays
+    # Diffed field by field, because `assert_equal` on two 163-element arrays
     # of hashes prints something nobody can read.
     expected.zip(observed).each do |want, got|
       assert_equal want, got,
@@ -228,7 +228,7 @@ class SurfaceLockTest < ChatlyTest
   def test_the_lock_covers_every_manifest_entry
     skip "packages/sdk-spec/surface.json not reachable from here" unless File.exist?(MANIFEST_PATH)
 
-    assert_equal 162, manifest.fetch("entries").length,
+    assert_equal 163, manifest.fetch("entries").length,
                  "the manifest changed size -- re-read it before trusting this suite"
 
     pairs = ensure_lock!.fetch("entries").map { |e| [e.fetch("ns"), e.fetch("name")] }
@@ -251,7 +251,7 @@ class SurfaceLockTest < ChatlyTest
   # rows -- but all four shapes must stay represented, and `empty` stays at
   # exactly one until a second real 204 genuinely ships.
   def test_the_declared_shape_column_is_complete_and_not_vacuous
-    assert_equal 162, EXPECTED_SHAPE.length, "a route lost its declared shape"
+    assert_equal 163, EXPECTED_SHAPE.length, "a route lost its declared shape"
 
     EXPECTED_SHAPE.each do |key, shape|
       assert_includes FakeTransport::SHAPES, shape,

@@ -50,7 +50,7 @@ under Settings → API keys. It looks like `ck_live_…`.
 A key reaches only the routes the API opens to one. The rest need a signed-in
 person and answer a key with `403` — a reaction records _who_ reacted, and a
 key is not a person. This gem wraps every route in the shared SDK manifest
-(`packages/sdk-spec/surface.json`), all 162 of them, and nothing a key cannot
+(`packages/sdk-spec/surface.json`), all 163 of them, and nothing a key cannot
 use: a method that always fails is worse than no method, because the failure
 arrives in production, in somebody else's integration. As of 2026-10-14 that
 manifest is exactly the set of routes carrying `@AllowApiKey()`, so there is
@@ -117,7 +117,7 @@ customer-defined and are never touched.
 
 ## Method reference
 
-162 methods across 23 namespaces. `client.<namespace>.<method>`.
+163 methods across 24 namespaces. `client.<namespace>.<method>`.
 
 Deliberate absences: there is no `contacts.block` or `contacts.unblock`, no
 `channels.delete`, no `bots.delete` and no way to read a channel's current
@@ -684,21 +684,21 @@ whether a tool existed.
 
 ### `bots`
 
-| Ruby                                   | HTTP                                           |
-| -------------------------------------- | ---------------------------------------------- |
-| `bots.list(query = {})`                | `GET /v1/bots`                                 |
-| `bots.auto_list(query = {})`           | ↳ auto-paginating `Enumerator`                 |
-| `bots.get(id)`                         | `GET /v1/bots/{id}`                            |
-| `bots.create(attrs)`                   | `POST /v1/bots`                                |
-| `bots.update(id, attrs)`               | `PATCH /v1/bots/{id}`                          |
-| `bots.update_external(id, attrs)`      | `PATCH /v1/bots/{id}/external`                 |
-| `bots.rotate_external_secret(id)`      | `POST /v1/bots/{id}/external/rotate-secret`    |
-| `bots.deliveries(id, query = {})`      | `GET /v1/bots/{id}/deliveries`                 |
-| `bots.auto_deliveries(id, query = {})` | ↳ auto-paginating `Enumerator`                 |
-| `bots.delivery(id, delivery_id)`       | `GET /v1/bots/{id}/deliveries/{delivery_id}`   |
-| `bots.redeliver(id, delivery_id)`      | `POST /v1/bots/{id}/deliveries/{id}/redeliver` |
-| `bots.test_delivery(id)`               | `POST /v1/bots/{id}/test-delivery`             |
-| `bots.analytics(id, query = {})`       | `GET /v1/bots/{id}/analytics`                  |
+| Ruby                                                | HTTP                                           |
+| --------------------------------------------------- | ---------------------------------------------- |
+| `bots.list(query = {})`                             | `GET /v1/bots`                                 |
+| `bots.auto_list(query = {})`                        | ↳ auto-paginating `Enumerator`                 |
+| `bots.get(id)`                                      | `GET /v1/bots/{id}`                            |
+| `bots.create(attrs)`                                | `POST /v1/bots`                                |
+| `bots.update(id, attrs)`                            | `PATCH /v1/bots/{id}`                          |
+| `bots.update_external(id, attrs)`                   | `PATCH /v1/bots/{id}/external`                 |
+| `bots.rotate_external_secret(id, activate_at: nil)` | `POST /v1/bots/{id}/external/rotate-secret`    |
+| `bots.deliveries(id, query = {})`                   | `GET /v1/bots/{id}/deliveries`                 |
+| `bots.auto_deliveries(id, query = {})`              | ↳ auto-paginating `Enumerator`                 |
+| `bots.delivery(id, delivery_id)`                    | `GET /v1/bots/{id}/deliveries/{delivery_id}`   |
+| `bots.redeliver(id, delivery_id)`                   | `POST /v1/bots/{id}/deliveries/{id}/redeliver` |
+| `bots.test_delivery(id)`                            | `POST /v1/bots/{id}/test-delivery`             |
+| `bots.analytics(id, query = {})`                    | `GET /v1/bots/{id}/analytics`                  |
 
 Two kinds of bot share these routes: a **Chatly persona** (`type: "chatly"` —
 a prompt, tools and a KB scope our AI service runs) and an **external agent**
@@ -714,8 +714,18 @@ instead of answering `409` — always read `slug` off the response.
 `test_delivery` signs a rehearsal payload with the real secret, POSTs it to
 the real URL **synchronously**, and returns `signature` and `payload` so you
 can check a verifier offline. It writes nothing, so it never shows up under
-`deliveries`. `rotate_external_secret` has **no overlap window** — deploy
-first, rotate second.
+`deliveries`.
+
+`rotate_external_secret(id)` with no `activate_at:` is a **hard cut**: no body
+goes up, the answer's `activatesAt` is `nil`, and the old secret stops signing
+the moment it returns — deploy first, rotate second. Pass
+`activate_at:` (a `Time`, sent as UTC ISO 8601 with a `Z`, or an ISO 8601
+String with a `Z` or offset, sent verbatim) for an **overlap window**: the old
+secret keeps signing every delivery until that instant, and `activatesAt` in
+the answer says when the switch happens. Each delivery carries ONE signature,
+so have your verifier accept both secrets for the window. More than 168 hours
+ahead (by the server's clock) is a `400`; an instant already past, or an agent
+with no usable secret today, is a hard cut and answers `activatesAt: nil`.
 
 `analytics` takes `days:` only (1–365): `from`, `to`, `weeks` and `date` are
 **refused by name**. A `nil` rate means its denominator was 0, and a `nil`
@@ -948,6 +958,49 @@ API will not tell you about.
 `sort:`/`fields:` are validated strictly while any other unknown query key is
 dropped. `delete` is a hard delete answering `{"ok" => true}`; a miss is a
 `404`, never `ok: false`.
+
+### `visitors`
+
+| Ruby                              | HTTP                                               |
+| --------------------------------- | -------------------------------------------------- |
+| `visitors.start_conversation(id)` | `POST /v1/visitors/{contactId}/start-conversation` |
+
+```ruby
+chatly.visitors.start_conversation(contact_id)["conversationId"]
+```
+
+Opens a thread with a contact who did **not** write first and sends the
+workspace's proactive greeting into it. The contact id is the whole input —
+no body, no query — and the answer is `{"conversationId" => "…"}`.
+
+**It is off by default, per workspace, and that is the commonest `403`.** The
+flag is `settings.proactiveOutreach.apiKeysMayStartConversations`; an owner or
+admin turns it on with `PATCH /v1/workspace/settings`, which needs a signed-in
+person and is not in this gem, and you can read the current value with
+`client.workspace.settings`, which is. The scope is **not** the opt-in:
+`conversations:write` was already grantable and is already held by keys minted
+for ticket bulk actions and schedule-send, so a `Chatly::PermissionError` here
+usually means the setting rather than your scopes. Check it first.
+
+**Three per contact per hour**, counted per workspace and per _contact_ rather
+than per caller — the abuse shape is N threads at one person. The fourth call
+inside the hour raises `Chatly::RateLimitError`.
+
+Two different `429`s come off this route and they do not look alike. The
+per-contact limit sends **no `Retry-After` header** — the wait is only in the
+body, at `error.details.retryAfterSeconds` — while the global throttler
+buckets the route inherits (`short`, 30/s; `login`, 100/15min) do send one.
+`#retry_after` is set in both cases because this gem falls back to the body
+field, which is exactly why you should read `#retry_after` and not the header.
+
+**An offline visitor is not notified**: the greeting is persisted and the
+widget renders it from history on their next page view, with no email, push or
+provider message. To reach someone who has left the site, use an email or SMS
+conversation instead.
+
+`GET /v1/visitors/live` and `GET /v1/visitors/{contactId}/pages` sit on the
+same controller and are **not** here — neither carries `@AllowApiKey()`, so a
+key gets a `403` from both.
 
 ## Pagination
 
@@ -1332,7 +1385,7 @@ One file at a time:
 ruby -Ilib -Itest test/webhooks_test.rb
 ```
 
-Running the suite regenerates `surface.lock.json` — the 162 methods, each with
+Running the suite regenerates `surface.lock.json` — the 163 methods, each with
 the `METHOD /path` it actually issued, recorded by calling every one of them
 and normalising the interpolated segments back to the manifest's `{...}`
 names. The test fails if the lock and

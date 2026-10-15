@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# THE DECLARED COLUMN: what this SDK expects back from each of the 162 routes,
+# THE DECLARED COLUMN: what this SDK expects back from each of the 163 routes,
 # and the arguments needed to call them.
 #
 # Split out of `test/surface_lock_test.rb` when the surface went from 55
@@ -236,6 +236,13 @@ module SurfaceLockTable
     "triggers.delete" => "object",
     "triggers.list" => "page",
 
+    # `{conversationId}` -- an object, and read off the SERVICE rather than a
+    # schema: this handler carries no `@ZodResponse` at all, so the shape
+    # comes from `VisitorsService.startProactiveConversation`, declared
+    # `Promise<{ conversationId: string }>`. Nothing about the verb or the
+    # route's name says `object` on its own.
+    "visitors.start_conversation" => "object",
+
     "webhooks.create" => "object",
     "webhooks.delete" => "object",
     "webhooks.deliveries" => "page",
@@ -261,7 +268,10 @@ module SurfaceLockTable
   # (or, where it has none, the service return type it forwards). Asserted
   # below, because a column that said "object" 159 times would satisfy every
   # other assertion in this file and be worth nothing.
-  SHAPE_COUNTS = { "array" => 33, "page" => 13, "object" => 115, "empty" => 1 }.freeze
+  #
+  # `visitors.start_conversation` took `object` from 115 to 116 on 2026-10-14,
+  # the day that route opened to API keys.
+  SHAPE_COUNTS = { "array" => 33, "page" => 13, "object" => 116, "empty" => 1 }.freeze
 
   # Positional arguments a method needs BEYOND its path parameters, keyed by
   # the manifest's [ns, name]. A body, or a value the method accepts
