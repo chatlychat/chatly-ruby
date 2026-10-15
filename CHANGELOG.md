@@ -26,6 +26,26 @@ All notable changes to the `chatly` gem. This project follows
 
 ### Added
 
+- **`Chatly::Webhooks.verify_chatly_signature(surface:, body:, headers:, secret:, ...)`**
+  (also `Chatly.verify_chatly_signature`) — one verifier for all eight
+  signatures Chatly puts on an outbound request: `unified_v2`,
+  `agent_delivery`, `event_webhook`, `ai_tool_call`, `canvas_step`,
+  `customer_card`, `workflow_webhook` and `workflow_webhook_legacy`. A port of
+  the Node SDK's `verifyChatlySignature`, run against the same cross-SDK
+  corpus (`test/fixtures/signature_vectors.json`, not shipped in the gem). It
+  returns a frozen `Chatly::SignatureResult` — `ok?`, `surface`, and either
+  `timestamp_ms` / `base` / `secret_index` or a stable `reason` (one of
+  `Chatly::SIGNATURE_FAILURE_REASONS`) with a printable `message` — instead
+  of `true`/`false`, because "your clock is wrong", "your secret is wrong"
+  and "you passed the parsed body" were indistinguishable. It never raises.
+  Takes a secret Array for rotation (with `secret_index` counting the Array
+  you passed, empty slots included), the `v2:` policy (`"prefer"` default,
+  `"require"`, `"ignore"`), and refuses a duplicated signature header instead
+  of trial-verifying each copy. `Chatly::Webhooks.rack_headers(env)` turns a
+  Rack env into the wire-named Hash it expects. Also exported:
+  `Chatly::SIGNATURE_TOLERANCE_SECONDS` (300), `Chatly::V2_SIGNATURE_HEADER`,
+  `Chatly::SIGNATURE_SURFACES` and `Chatly::SIGNATURE_SURFACE_NAMES`.
+  `Chatly.verify_webhook_signature` is unchanged.
 - **The other 107 routes.** The gem covered 55 of the routes in
   `packages/sdk-spec/surface.json`; it now covers all 162, across eleven
   new namespaces — `ai`, `bots`, `bot_routes`, `brands`, `canvas_steps`,

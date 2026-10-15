@@ -63,6 +63,8 @@ Gem::Specification.new do |spec|
     "lib/chatly/errors.rb",
     "lib/chatly/identity.rb",
     "lib/chatly/pagination.rb",
+    "lib/chatly/signature_text.rb",
+    "lib/chatly/signatures.rb",
     "lib/chatly/transport.rb",
     "lib/chatly/version.rb",
     "lib/chatly/webhooks.rb",

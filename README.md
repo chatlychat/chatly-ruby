@@ -1275,6 +1275,77 @@ Re-verifying an archived delivery, where the timestamp is long stale:
 Chatly.verify_webhook_signature(body, header, secret, Float::INFINITY)
 ```
 
+### Every other signed surface: `verify_chatly_signature`
+
+`verify_webhook_signature` knows one header. Chatly signs eight kinds of
+outbound request, and the header name does not tell you which construction
+was used — three surfaces send `x-chatly-signature` and sign three different
+strings, and two send their timestamp in **milliseconds**. So you say which
+surface you are terminating:
+
+```ruby
+result = Chatly::Webhooks.verify_chatly_signature(
+  surface: "ai_tool_call",                      # or :ai_tool_call
+  body: request.raw_post,                       # the raw bytes, NOT params
+  headers: Chatly::Webhooks.rack_headers(request.env),
+  secret: ENV.fetch("CHATLY_TOOL_SECRET"),      # or [old, new] mid-rotation
+  method: request.request_method,
+  path: request.fullpath                        # pathname + query, no host
+)
+
+unless result.ok?
+  Rails.logger.warn("chatly signature: #{result.reason}: #{result.message}")
+  return head(:unauthorized)
+end
+
+result.surface       # => "ai_tool_call" (or "unified_v2" if the v2 header verified)
+result.base          # => "target"
+result.timestamp_ms  # => 1760000000000, always milliseconds
+result.secret_index  # => 0 -- which secret in the list matched
+```
+
+| `surface:`                | header                      | signed string                       |
+| ------------------------- | --------------------------- | ----------------------------------- |
+| `unified_v2`              | `x-chatly-signature-v2`     | `<t>.<METHOD>.<path>.<body>`        |
+| `agent_delivery`          | `x-chatly-signature`        | `<t>.<body>`                        |
+| `event_webhook`           | `x-livechat-signature`      | `<t>.<body>`                        |
+| `ai_tool_call`            | `x-chatly-signature`        | `<t>.<METHOD>.<path>.<body>`        |
+| `canvas_step`             | `x-chatly-canvas-signature` | `<ms>.<body>`, `x-chatly-canvas-ts` |
+| `customer_card`           | `x-chatly-signature`        | `<ms>.<body>`, `x-chatly-timestamp` |
+| `workflow_webhook`        | `x-chatly-signature-v2`     | `<t>.<body>` or the target base     |
+| `workflow_webhook_legacy` | `x-chatly-signature`        | `<body>` — no timestamp             |
+
+It never raises. A refusal carries a stable `reason` — one of
+`Chatly::SIGNATURE_FAILURE_REASONS`: `unknown_surface`, `missing_secret`,
+`missing_signature_header`, `duplicate_signature_header`,
+`malformed_signature_header`, `missing_timestamp`, `malformed_timestamp`,
+`timestamp_outside_tolerance`, `missing_request_target`,
+`replay_unprotected`, `signature_mismatch` — and a `message` written to be
+logged. Branch on `reason`, never on `message`.
+
+The details worth knowing:
+
+- **The body is bytes.** The MAC is over the String's bytes exactly as they
+  are: a binary (`ASCII-8BIT`) body is not transcoded, a UTF-8 one is its
+  UTF-8 bytes. Pass `request.raw_post` or `request.body.read` (and rewind).
+- **`v2:`** — `"prefer"` (default) verifies `x-chatly-signature-v2` instead
+  of the surface's own header whenever it is present _and_ you passed
+  `method:` and `path:`. Once it has chosen v2 it never falls back to the
+  legacy header. `"require"` refuses a request without v2; `"ignore"` checks
+  the surface's own header only.
+- **`tolerance_seconds:`** defaults to 300 (`Chatly::SIGNATURE_TOLERANCE_SECONDS`)
+  and applies in both directions; exactly 300s of drift is accepted.
+  `Float::INFINITY` re-verifies an archived request.
+- **`workflow_webhook_legacy`** signs no timestamp, so a captured request
+  verifies forever. It is refused with `replay_unprotected` unless you pass
+  `allow_unprotected_replay: true` — verify `workflow_webhook` instead.
+- **Headers** are matched case-insensitively, and every key that matches
+  counts, so a header that arrives twice (or twice under two casings) is
+  refused as `duplicate_signature_header` rather than guessed between. Rack
+  itself joins a repeated header into one comma-separated value before your
+  code sees it; that is still safe, because each digest must verify, but it
+  will not read as a duplicate.
+
 ## Identity verification (widget `userHash`)
 
 When a workspace turns identity verification on, the widget must prove the

@@ -72,9 +72,10 @@ module Chatly
     Webhooks.secure_compare(expected, provided.downcase)
   end
 
-  # Internals of signature verification. Public so the suite can test the
-  # header parser and the comparison on their own; not part of the supported
-  # surface.
+  # Signature verification. `verify_chatly_signature` and `rack_headers`
+  # (defined in `signatures.rb`) are the supported surface of this module;
+  # `parse_header` and `secure_compare` below are internals, public so the
+  # suite can test the header parser and the comparison on their own.
   module Webhooks
     # Parse `t=...,v1=...` into a Hash.
     #

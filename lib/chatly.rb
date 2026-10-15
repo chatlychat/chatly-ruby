@@ -19,10 +19,11 @@
 # `time` and `uri`, all from the standard library. You should not have to
 # inherit our dependency tree to send a message.
 #
-# Three things need no client at all, because they are pure functions:
+# Four things need no client at all, because they are pure functions:
 #
 #   Chatly.identity_hash(secret, external_id)
 #   Chatly.verify_webhook_signature(body, header, secret)
+#   Chatly.verify_chatly_signature(surface:, body:, headers:, secret:)
 #   Chatly::VERSION
 # Load order matters in one place: `errors` and `transport` define constants
 # that the resources and the client close over, so they come first. Plain
@@ -36,6 +37,7 @@ require_relative "chatly/transport"
 require_relative "chatly/pagination"
 require_relative "chatly/identity"
 require_relative "chatly/webhooks"
+require_relative "chatly/signatures"
 require_relative "chatly/resources/base"
 require_relative "chatly/resources/ai"
 require_relative "chatly/resources/billing"
