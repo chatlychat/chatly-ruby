@@ -19,6 +19,7 @@ TEST_FILES = %w[
   pagination_test
   retries_test
   rotate_external_secret_test
+  signature_mint_test
   signatures_test
   surface_lock_test
   surface_test

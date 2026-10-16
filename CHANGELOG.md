@@ -26,6 +26,25 @@ All notable changes to the `chatly` gem. This project follows
 
 ### Added
 
+- **`Chatly.sign_chatly_v2(base:, secret:, timestamp_seconds:, body:, method:, path:)`**
+  (also `Chatly::Webhooks.sign_chatly_v2`) — the other direction, for your
+  own tests: it mints the `x-chatly-signature-v2` value Chatly would send, so
+  a test does not have to re-derive `<t>.<METHOD>.<path>.<body>` by hand and
+  then agree with its own mistake. `base:` has no default (`"target"` for the
+  unified base, `"body"` for `<t>.<body>`) because the two are
+  indistinguishable from the value alone, which is why the `b=` marker
+  exists. Unlike the verifier it RAISES `ArgumentError` on an unmintable
+  input — an unknown base, a `"target"` mint with no `method:` or `path:`, an
+  empty secret, a non-Integer timestamp, a non-String body — since a mint
+  that guessed would sign a string the receiver cannot rebuild.
+  `Chatly.chatly_v2_base_string(...)` returns the exact bytes being MACed,
+  and `Chatly::V2_MINT_BASES` lists the two. A port of the Node SDK's
+  `signChatlyV2`, pinned against the frozen vector the platform's own
+  producer pins, and tested round-trip against this gem's verifier —
+  including the workflow action's dual-digest value
+  (`t=<T>,v1=<unified>,v1=<body>`, no marker), which the cross-SDK corpus has
+  no vector for.
+
 - **`Chatly::Webhooks.verify_chatly_signature(surface:, body:, headers:, secret:, ...)`**
   (also `Chatly.verify_chatly_signature`) — one verifier for all eight
   signatures Chatly puts on an outbound request: `unified_v2`,

@@ -1346,6 +1346,51 @@ The details worth knowing:
   code sees it; that is still safe, because each digest must verify, but it
   will not read as a duplicate.
 
+### Signing one, for your own tests: `sign_chatly_v2`
+
+Testing the handler above means firing a correctly signed request at it, and
+re-deriving `<t>.<METHOD>.<path>.<body>` by hand in the test is how that goes
+wrong: get it wrong there and nowhere else, and the test passes while
+production refuses every delivery. `sign_chatly_v2` mints the value Chatly
+would send.
+
+```ruby
+header = Chatly.sign_chatly_v2(
+  base: "target",                 # the unified <t>.<METHOD>.<path>.<body>
+  secret: secret,
+  timestamp_seconds: 1_760_000_000, # SECONDS, never milliseconds
+  body: raw,
+  method: "POST",
+  path: "/hooks/chatly"
+)
+# => "t=1760000000,v1=<64 hex>,b=t"
+
+post "/hooks/chatly", raw, { "HTTP_X_CHATLY_SIGNATURE_V2" => header }
+```
+
+- **`base:` has no default.** `"target"` is the unified base and `"body"` is
+  `<t>.<body>`; the two are indistinguishable from the value alone, which is
+  exactly why the `b=` marker exists, so you have to say which you mean. An
+  *absent* marker means the body base — every v2 signature Chatly minted
+  before the marker existed was that construction.
+- **It raises, where the verifier does not.** An unknown `base:`, a
+  `"target"` mint with no `method:` or `path:`, an empty secret, a non-Integer
+  timestamp or a non-String body all raise `ArgumentError`: a mint that
+  guessed would produce a digest over a string the receiver cannot rebuild,
+  which arrives as "signature mismatch" and sends them hunting their own
+  secret.
+- `Chatly.chatly_v2_base_string(...)` returns the exact bytes being MACed, if
+  you want to pin them in a test of your own.
+- It is for **tests**. Nothing in this gem sends a signed request to a
+  customer, and this is not a general-purpose signer for your own webhooks.
+
+The workflow "call a webhook" action is mid-migration and sends **two digests
+in one value with no marker** — `t=<T>,v1=<unified>,v1=<body>`. Build that
+from two mints by taking the `v1=` field out of each, which is what the
+producer does. Both digests verify; `verify_chatly_signature` with
+`surface: "workflow_webhook"` takes the unified one when you pass `method:`
+and `path:` and the body one when you do not.
+
 ## Identity verification (widget `userHash`)
 
 When a workspace turns identity verification on, the widget must prove the

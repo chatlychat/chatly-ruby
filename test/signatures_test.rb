@@ -23,7 +23,9 @@ class SignatureCorpusTest < ChatlyTest
 
   # A floor, not an exact count: the corpus is meant to grow. What it guards
   # is a loader that silently finds nothing -- zero vectors is a green run.
-  MIN_VECTORS = 59
+  # 59 -> 61 on 2026-10-16: the corpus holds 61, so this was blind to the two
+  # newest vectors. Go, Rust, Java and .NET already floored at the count.
+  MIN_VECTORS = 61
 
   # Corpus input keys are camelCase (the Node reference wrote them); this is
   # the one place that maps them onto Ruby keywords. An unknown key fails the
